@@ -2006,6 +2006,46 @@ try {
     }
   });
 
+  await step('a window that closes and comes back gets its tree back: at once, or later on', async () => {
+    // Cw opened Cw.1 and Cw.2, and Cw.1 opened Cw.1.1, in a window of their own. The window closes, and comes back: the
+    // browser makes it anew, with new tabs (History, Ctrl+Shift+T, or reopening the browser that kept running in the
+    // background), as a window made here with the same pages is.
+    const names = ['Cw', 'Cw.1', 'Cw.1.1', 'Cw.2'];
+    const want = { Cw: null, 'Cw.1': 'Cw', 'Cw.1.1': 'Cw.1', 'Cw.2': 'Cw' };
+    const parentsOf = async () => {
+      const [tabs, nodes] = await Promise.all([allTabs(), storedNodes()]);
+      const titles = new Map(tabs.map((t) => [t.id, t.title]));
+      return Object.fromEntries(names.map((name) => {
+        const tab = tabs.find((t) => t.title === name);
+        const parent = tab ? nodes[tab.id]?.parent ?? null : undefined;
+        return [name, parent == null ? parent : titles.get(parent) ?? `#${parent}`];
+      }));
+    };
+    let win = await inWorker(async (url) => (await chrome.windows.create({ url })).id, `${base}/?name=Cw`);
+    try {
+      for (const [from, link, name] of [['Cw', 1, 'Cw.1'], ['Cw', 2, 'Cw.2'], ['Cw.1', 1, 'Cw.1.1']]) {
+        const page = await pageNamed(browser, base, from);
+        await page.bringToFront();
+        await page.click(`#l${link}`, { button: 'middle' });
+        await idOf(name);
+      }
+      await eventually(parentsOf, want, 'Cw\'s tree');
+      await sleep(1500); // in the snapshot
+      await handled();
+      const urls = await inWorker(async (w) => (await chrome.tabs.query({ windowId: w })).sort((a, b) => a.index - b.index).map((t) => t.url), win);
+      const comeBack = () => inWorker(async (u) => (await chrome.windows.create({ url: u })).id, urls);
+      await inWorker((w) => chrome.windows.remove(w), win);
+      win = await comeBack();
+      await eventually(parentsOf, want, 'back at once, with its tree');
+      await inWorker((w) => chrome.windows.remove(w), win);
+      await sleep(7000); // the snapshot lets it go (WINDOW_CLOSE_HOLD_MS, then a save): it is kept as a closed window
+      win = await comeBack();
+      await eventually(parentsOf, want, 'back later on, with its tree');
+    } finally {
+      await inWorker((w) => chrome.windows.remove(w).catch(() => {}), win);
+    }
+  });
+
   await step('reloading the extension (session storage wiped) restores the tree by tab id', async () => {
     const before = await storedParents();
     // Colours a fresh start would not give: C's tree green, which A.js inside it holds too, and

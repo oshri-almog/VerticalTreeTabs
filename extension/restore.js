@@ -5,6 +5,11 @@
 //   (tabs in strip order; the group fields, see GROUP_FIELDS, only where they are set)
 // After an extension reload or update the tabs keep their ids, so the snapshot maps back
 // by id. After a browser restart every tab gets a new id, so tabs are matched by URL.
+//
+// The windows that closed while the browser ran on are kept apart, as `closedWindows` (the newest first; see
+// goneWindows): a window that comes back (from History, by Ctrl+Shift+T, or as the browser reopens its last window when
+// it kept running in the background, as Edge does with Startup boost) is made anew, with new tabs, which take its tree
+// back by URL (see matchClosedWindow).
 
 import { colorOf, removeNode } from './tree.js';
 
@@ -12,6 +17,40 @@ import { colorOf, removeNode } from './tree.js';
 export const GROUP_FIELDS = [
   'groupName', 'groupColor', 'lastGroupColor', 'noGroup', 'hadGroup', 'groupAdopted', 'firstLink', 'alsoLinks',
 ];
+
+/** The most windows whose trees are kept once they closed (see goneWindows). */
+export const MAX_CLOSED_WINDOWS = 10;
+
+/**
+ * The saved windows (`saved`, as in a snapshot) that are gone from the open ones (`open`: [{ tabs: [{ id, url }] }]):
+ * none of their tabs is open, and no open window holds most of their URLs (after a restart that numbered the tabs anew,
+ * the same windows are back under new ids). Only those with a tree: the others have nothing to give back.
+ */
+export function goneWindows(saved, open) {
+  const ids = new Set(open.flatMap((win) => win.tabs.map((tab) => tab.id)));
+  return (saved ?? []).filter((win) => win.tabs.some((tab) => tab.parent != null)
+    && !win.tabs.some((tab) => ids.has(tab.id))
+    && !open.some((other) => 2 * sharedUrlCount(win.tabs, other.tabs) >= win.tabs.length));
+}
+
+/** The closed windows kept (`closed`), with the windows `gone` at `at` in front: the newest first, MAX_CLOSED_WINDOWS. */
+export const addClosedWindows = (closed, gone, at) =>
+  [...gone.map((win) => ({ closedAt: at, tabs: win.tabs })), ...(closed ?? [])].slice(0, MAX_CLOSED_WINDOWS);
+
+/**
+ * The closed window (of `closed`, the most recent first) that the tabs of a window that just came are (`tabs`:
+ * [{ id, url }] in strip order): the one that shares the most URLs with them, at least two, and half of the tabs on either
+ * side. Returns { index, mapping } (its saved ids -> those tabs, see matchByUrl), or null.
+ */
+export function matchClosedWindow(closed, tabs) {
+  let best = null;
+  closed.forEach((win, index) => {
+    const score = sharedUrlCount(win.tabs, tabs);
+    if (score < 2 || 2 * score < tabs.length || 2 * score < win.tabs.length) return;
+    if (!best || score > best.score) best = { index, score };
+  });
+  return best && { index: best.index, mapping: matchByUrl({ windows: [closed[best.index]] }, [{ tabs }]) };
+}
 
 /**
  * Map saved ids to current tabs when the ids survived (extension reload / update).

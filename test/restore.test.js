@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { GROUP_FIELDS, matchById, matchByUrl, restoreNodes } from '../extension/restore.js';
+import {
+  addClosedWindows, goneWindows, GROUP_FIELDS, MAX_CLOSED_WINDOWS, matchById, matchByUrl, matchClosedWindow, restoreNodes,
+} from '../extension/restore.js';
 import { buildForest, removeNode } from '../extension/tree.js';
 import { groupUnits, storeFirstLinks } from '../extension/groups.js';
 
@@ -231,6 +233,33 @@ function closeOrRestart(nodes, order, gone, renumber) {
   const units = branchUnits(left.map((id) => now.get(id)), restored).map(([head, tabs]) => [was.get(head), tabs.map((x) => was.get(x))]);
   return [[linkRecords(closed), branchUnits(left, closed)], [records, units]];
 }
+
+test('a window that closed while the browser ran on is kept, and a window that comes back with its pages takes its tree', () => {
+  const tab = (id, page, parent = null) => ({ id, url: `https://c.test/${page}`, parent });
+  const one = { tabs: [tab(1, 'a'), tab(2, 'a1', 1), tab(3, 'b')] }; // a tree: 2 under 1
+  const flat = { tabs: [tab(4, 'x'), tab(5, 'y')] }; // no tree: nothing to keep
+  const two = { tabs: [tab(6, 'p'), tab(7, 'p1', 6), tab(8, 'p2', 6), tab(9, 'q')] };
+  // Open: 6, so `two` is; `one` closed; `flat` closed, but it has no tree.
+  assert.deepEqual(goneWindows([one, flat, two], [{ tabs: [{ id: 6, url: 'https://c.test/p' }] }]), [one]);
+  // After a restart that numbered the tabs anew, a window back under new ids is not gone: most of its pages are open.
+  assert.deepEqual(goneWindows([one], [{ tabs: [{ id: 51, url: 'https://c.test/a' }, { id: 52, url: 'https://c.test/a1' }] }]), []);
+  // Kept the newest first, MAX_CLOSED_WINDOWS at most.
+  let closed = [];
+  for (let i = 0; i < 12; i++) closed = addClosedWindows(closed, [{ tabs: [tab(100 + i, `w${i}`), tab(200 + i, `v${i}`, 100 + i)] }], i);
+  assert.deepEqual([closed.length, closed[0].closedAt, closed.at(-1).closedAt], [MAX_CLOSED_WINDOWS, 11, 2]);
+  // A window that comes back (new tabs, the same pages) takes the tree of the closed window that is most like it...
+  const back = [31, 32, 33, 34].map((id, i) => ({ id, url: two.tabs[i].url }));
+  const match = matchClosedWindow([one, two], back);
+  assert.deepEqual([match.index, [...match.mapping]], [1, [[6, 31], [7, 32], [8, 33], [9, 34]]]);
+  const nodes = restoreNodes({ windows: [two] }, match.mapping);
+  assert.deepEqual([nodes[31].parent, nodes[32].parent, nodes[33].parent, nodes[34].parent], [null, 31, 31, null]);
+  // ... but not one tab, nor a window that shares less than half its pages, or half of the closed window's.
+  assert.equal(matchClosedWindow([two], back.slice(0, 1)), null);
+  const others = [40, 41, 42, 43].map((id) => ({ id, url: `https://c.test/n${id}` }));
+  assert.equal(matchClosedWindow([two], [...back.slice(0, 2), ...others]), null);
+  const big = { tabs: [...two.tabs, ...[60, 61, 62, 63, 64].map((id) => tab(id, `m${id}`))] };
+  assert.equal(matchClosedWindow([big], back.slice(0, 2)), null);
+});
 
 test('branches: the tabs closed just before a restart hand their places on as a close does, all of them', () => {
   // 1 opened 2; 2 opened 3 (its first link), which opened 4 and 6; 2 opened 5 in between.

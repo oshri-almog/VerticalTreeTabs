@@ -8,7 +8,9 @@
 //
 // The nodes live in chrome.storage.session, which outlives this worker being shut down,
 // and the side panel draws from there. A URL-based snapshot in chrome.storage.local
-// rebuilds the tree after a browser restart gives every tab a new id.
+// rebuilds the tree after a browser restart gives every tab a new id; the trees of the
+// windows that closed while the browser ran on are kept too, for when they come back (see
+// cameBack).
 //
 // Every tree (a top-level tab with children) has a colour, stored on its top tab. After each
 // change that can start or end a tree the colours are settled once more (see scheduleColors
@@ -25,7 +27,9 @@ import {
   autoName, groupUnits, isNested, joinTree, leaveTree, oneLine, planGroups, readSettings, storeFirstLinks, storeUnitColors,
   unitColors,
 } from './groups.js';
-import { GROUP_FIELDS, matchById, matchByUrl, restoreNodes } from './restore.js';
+import {
+  addClosedWindows, goneWindows, GROUP_FIELDS, matchById, matchByUrl, matchClosedWindow, restoreNodes,
+} from './restore.js';
 
 const SNAPSHOT_DELAY_MS = 1000;
 // How long the colour pass reads the tabs outside the task queue while they keep changing.
@@ -101,6 +105,9 @@ chrome.tabs.onCreated.addListener((tab) => {
   born.set(tab.id, Date.now());
   run(() => onCreated(tab));
 });
+chrome.windows.onCreated.addListener((win) => {
+  if (!win.incognito) cameBack(win.id, Date.now());
+}, { windowTypes: ['normal'] });
 chrome.webNavigation.onCreatedNavigationTarget.addListener(({ tabId, sourceTabId }) =>
   run(() => openedFrom(tabId, sourceTabId)));
 chrome.tabs.onRemoved.addListener((tabId, info) => {
@@ -240,6 +247,58 @@ async function settledTabs(tabs) {
     tabs = next;
   }
   return tabs;
+}
+
+/**
+ * A window that just came may be one that was closed, coming back: from History, by Ctrl+Shift+T, or as the browser
+ * reopens its last window when it kept running in the background (Edge does, with Startup boost). The browser makes
+ * such a window anew, with new tabs, all at once: once their number holds, they take the tree of the closed window they
+ * are (see restoreWindow).
+ */
+async function cameBack(windowId, since) {
+  let count = -1;
+  for (let stable = 0, waited = 0; stable < 2 && waited < 5000; waited += 250) {
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    const tabs = await chrome.tabs.query({ windowId }).catch(() => null);
+    if (!tabs) return; // closed again, or the browser is quitting
+    stable = tabs.length === count ? stable + 1 : 0;
+    count = tabs.length;
+  }
+  if (count >= 2) run(() => restoreWindow(windowId, since));
+}
+
+/**
+ * The tabs of a window that came at `since` take the tree of the closed window they are, by URL (see matchClosedWindow):
+ * one the snapshot still has (closed less than its hold ago, or the last window, which it keeps while the browser runs
+ * on without windows), or one kept as closed (see saveSnapshot). Only tabs the browser made with the window, as it made
+ * them: at the top level, with no tab under them.
+ */
+async function restoreWindow(windowId, since) {
+  const all = await chrome.tabs.query({});
+  const tabs = all.filter((tab) => tab.windowId === windowId).sort(byIndex);
+  if (tabs.length < 2 || tabs[0].incognito) return;
+  const parents = new Set(Object.values(nodes).map((node) => node.parent));
+  const fresh = tabs.filter((tab) => (born.get(tab.id) ?? 0) >= since - 2000 && nodes[tab.id]?.parent == null && !parents.has(tab.id));
+  if (fresh.length < 2) return;
+  const { snapshot, closedWindows = [] } = await chrome.storage.local.get(['snapshot', 'closedWindows']);
+  const others = windowsOf(all.filter((tab) => tab.windowId !== windowId));
+  const candidates = [...goneWindows(snapshot?.windows, others), ...closedWindows];
+  const match = matchClosedWindow(candidates, fresh.map((tab) => ({ id: tab.id, url: tab.url || tab.pendingUrl || '' })));
+  if (!match) return;
+  const entry = candidates[match.index];
+  const restored = restoreNodes({ windows: [entry] }, match.mapping);
+  if (!Object.values(restored).some((node) => node.parent != null)) return; // no tree among the tabs that matched
+  Object.assign(nodes, restored);
+  // That window is back, and no longer kept as closed.
+  const ids = new Set(entry.tabs.map((tab) => tab.id));
+  const left = closedWindows.filter((win) => !win.tabs.some((tab) => ids.has(tab.id)));
+  if (left.length !== closedWindows.length) await chrome.storage.local.set({ closedWindows: left });
+  // The browser brings the window's tab groups back too, and may link them to its saved groups for a while: the trees
+  // take them back (`hadGroup`) once it is done, as after a restart.
+  groupsHoldUntil = Math.max(groupsHoldUntil, Date.now() + STARTUP_GROUPS_MS);
+  expandAboveActive(all);
+  persist();
+  scheduleSnapshot();
 }
 
 /**
@@ -1425,6 +1484,7 @@ function writeTree() {
 
 let snapshotTimer = null;
 let holdUntil = 0;
+let lastSaved = null; // the windows of the last snapshot saved, to tell which of them closed (see saveSnapshot)
 // While changes keep coming (a page that changes its URL every moment, say), the snapshot waits for them to stop, but no
 // longer than this after the first of them.
 const SNAPSHOT_MAX_WAIT_MS = 5000;
@@ -1486,6 +1546,16 @@ async function saveSnapshot() {
           return entry;
         }),
       }));
+    // The windows that closed while the browser ran on are kept apart, for when they come back (see cameBack); those
+    // that are back already go from there.
+    const previous = lastSaved ?? (await chrome.storage.local.get('snapshot')).snapshot?.windows ?? [];
+    const gone = goneWindows(previous, saved);
+    if (gone.length || !lastSaved) {
+      const { closedWindows = [] } = await chrome.storage.local.get('closedWindows');
+      const kept = addClosedWindows(closedWindows.filter((win) => goneWindows([win], saved).length), gone, Date.now());
+      if (JSON.stringify(kept) !== JSON.stringify(closedWindows)) await chrome.storage.local.set({ closedWindows: kept });
+    }
+    lastSaved = saved;
     // With no window left (the browser keeps running in the background) keep the last one.
     if (saved.length) await chrome.storage.local.set({ snapshot: { savedAt: Date.now(), windows: saved } });
   } catch (error) {

@@ -25,16 +25,19 @@ Each tree is also a tab group in the tab strip, in the tree's colour (see [Tab g
   tab group too.
 - **Drag and drop** a tab with its subtree to rearrange it, nest it, or move it to another
   window; the real tabs move with it.
-- **A right-click menu** for each tab: new tab as child, reload, duplicate, pin, mute, rename the
-  tree's group, its colour, move to the top level or to a new window, close children, close the
-  tree.
-- **Search** that keeps each match's parents in view, and **keyboard** control of the whole
-  tree ([Using the panel](#using-the-panel)).
-- **Pinned tabs** as icons above the tree; a **speaker** on tabs that play sound, to mute them.
+- **A right-click menu** for each tab: new tab as child, reload, duplicate, pin, mute, the group's
+  name and colour, ungroup or group in the tab strip, collapse or expand, move to the top level or
+  to a new window, close children, close the tree, close the tab.
+- **Search** by title or address that keeps each match's parents in view, and **keyboard**
+  control of the whole tree ([Using the panel](#using-the-panel)).
+- **Pinned tabs** as icons above the tree; a **speaker** on tabs that play sound, to mute or
+  unmute them.
 - **Light and dark** themes, following the browser.
-- **Kept across restarts**: the tree, its colours, collapsed trees and group names come back
-  after the extension reloads or the browser restarts ([What is kept, and where](#what-is-kept-and-where)).
-- **Private**: everything stays in your browser; nothing is sent anywhere ([Privacy](PRIVACY.md)).
+- **Kept across restarts and closed windows**: the tree, its colours, collapsed trees and group
+  names come back after the extension reloads, the browser restarts, or a window you closed is
+  reopened ([What is kept, and where](#what-is-kept-and-where)).
+- **Private**: no server, no account, no analytics; what it keeps stays in your browser
+  ([Privacy](PRIVACY.md)).
 
 ## Install
 
@@ -53,11 +56,15 @@ Chrome 116 or later, or Microsoft Edge (tested with Edge 156 and 157).
    - Edge: go to `edge://extensions` and turn on **Developer mode** (in the left-hand menu).
 3. Click **Load unpacked** and choose the [`extension`](extension) folder inside the unzipped
    folder (the one that holds `manifest.json`).
-4. **Pin it** (the puzzle-piece icon in the toolbar → pin), then click its icon, or press
-   **Alt+T**, to open the panel. To change the shortcut, go to `chrome://extensions/shortcuts`
-   (Edge: `edge://extensions/shortcuts`), or use **⋯ → Keyboard shortcut…** in the panel.
-5. The browser asks to "read your browsing history" and to "view and manage your tab groups":
-   see [Permissions](#permissions) for why.
+4. **Put it in the toolbar** (Chrome: the puzzle-piece icon → pin; Edge: the Extensions button →
+   the eye icon, **Show in toolbar**), then click its icon, or press **Alt+T**, to open the panel.
+   To change the shortcut, go to `chrome://extensions/shortcuts` (Edge:
+   `edge://extensions/shortcuts`), or use **⋯ → Keyboard shortcut…** in the panel.
+5. Loading it unpacked asks for nothing; its **Details** page lists what it may do: "Read your
+   browsing history" and "View and manage your tab groups". See [Permissions](#permissions) for
+   why.
+6. To use it in incognito (InPrivate) windows too, turn on **Allow in incognito** (Edge: **Allow
+   in InPrivate**) on its Details page.
 
 Keep the folder where it is: the browser loads the extension from it each time.
 
@@ -66,7 +73,8 @@ Keep the folder where it is: the browser loads the extension from it each time.
 tree is kept.
 
 **To remove it**, click **Remove** on its card on the extensions page; then you can delete the
-folder.
+folder. The tab groups it made are the browser's own and stay: to have them ungrouped, choose
+**No groups** in its Settings first.
 
 ## How the tree is built
 
@@ -75,9 +83,13 @@ folder.
 - Following a link **inside** a tab doesn't move it.
 - Tabs that weren't opened from a page start at the top level: Ctrl+T, the New Tab button,
   bookmarks, Alt+Enter in the address bar. (Chrome reports the active tab as the "opener" of
-  those too, so the extension listens for link-opened tabs specifically instead.)
+  those too, so the extension listens for link-opened tabs specifically instead.) A tab the
+  browser opens inside one of the trees' tab groups (its **New tab in group**, say) joins that
+  tree.
+- Opening a link from a collapsed tab expands it, so that the new tab shows.
 - **Closing** a tab moves its children up one level, into its place. To close a whole tree,
-  use **Close tree** in the right-click menu.
+  right-click its top tab → **Close tree**: on a tab inside a tree, **Close tree** closes that tab
+  and the tabs under it, and **Close children** closes every tab under it.
 - **Pinned** tabs appear as icons above the tree and are not part of it; their children
   move up one level, into the pinned tab's place, until it is unpinned.
 - Tabs already open when you install the extension start flat, since the browser can't say
@@ -91,8 +103,9 @@ a tree is drawn in a lighter shade of the same colour, and the tree inside that 
 one still (in the light theme: darker); deeper levels go back and forth between those two
 shades. A single tab (a top-level tab without children) and a pinned tab have no colour.
 
-- A new tree takes a colour that no other tree in the window has. There are eight; with more
-  trees colours repeat, but a new one never takes the colour of the tree just above or below it.
+- A new tree takes a colour that no other tree in the window has, out of eight (the ninth, grey,
+  only when you pick it). With more trees colours repeat, but a new one never takes the colour of
+  the tree just above or below it.
 - A tree keeps its colour while you rearrange it in its window, collapse or search, and after
   the extension reloads or the browser restarts. To change a tree's colour, right-click any
   tab in it and click a colour.
@@ -120,16 +133,19 @@ tree, cut to its gist: "(2) Comedy · freshrss…" becomes "Comedy", "Inbox (3) 
 "Inbox". The name shows next to the tree's top tab in the panel.
 
 - To rename a group, right-click any tab of its tree in the panel and type in the name field
-  (Enter keeps the name, Esc doesn't), or right-click the group's name in the tab strip. An empty
-  name brings back the automatic one.
+  (Enter, or clicking away, keeps the name; Esc doesn't), or right-click the group's name in the
+  tab strip. An empty name brings back the automatic one. With a group per innermost subtree, page
+  or branch, a tab in a nested group offers that group's name and colour: right-click the tree's
+  top tab for the tree's. A tree without a group, or in one of your own groups, has no name field.
 - Colours go both ways: a colour picked in the panel colours the group, and one picked for the
   group in the tab strip colours the tree.
-- Collapsing a tree in the panel collapses its group too, even the group of the tab you are on.
-  If that tab is below the tree's top, you move to the top tab (as before); it stays the active
-  tab, hidden in the tab strip. Collapsing or expanding the group in the tab strip does the same
-  to the tree (Edge keeps you on your tab when you collapse its group: if it is below the top,
-  you move to the top tab here too). The browser opens a collapsed group by itself when you
-  switch to one of its tabs: the extension closes it again if the tree is still collapsed.
+- Collapsing a tree in the panel collapses its group too, even the group of the tab you are on:
+  if that tab is below the tree's top, you move to the top tab, which stays the active tab, hidden
+  in the tab strip (with groups off too, collapsing the tree you are in moves you to its top).
+  Collapsing or expanding the group in the tab strip does the same to the tree (Edge keeps you on
+  your tab when you collapse its group; if it is below the top, the extension moves you to the
+  top tab). The browser opens a collapsed group by itself when you switch to one of its tabs: the
+  extension closes it again if the tree is still collapsed.
 - Dragging a tab out of a group in the tab strip takes it out of its tree (its children move up
   into its place); dragging one into a group puts it into that group's tree, where it lands. Tabs
   taken out together stay together, out of the groups. "Ungroup" in the tab strip leaves the tree
@@ -158,7 +174,8 @@ Settings (⋯ menu → Settings…):
   tree**. Left alone, a tree with tabs in one of your groups gets no group, and one of your groups
   that holds exactly one tree becomes that tree's group, keeping its name and colour: the extension
   never ungroups it unless you ask (and when the tree ends, it is yours again, as it is). A tree
-  dropped in the panel between two tabs of one of your groups lands just beside the group.
+  dropped in the panel between two tabs of one of your groups lands just beside the group;
+  dropped as a child of one of that group's tabs, it joins the group.
 
 ## Using the panel
 
@@ -166,18 +183,25 @@ Settings (⋯ menu → Settings…):
 | --- | --- |
 | Switch to a tab | Click it |
 | Close a tab | Middle-click it, or click its × |
-| Collapse or expand a tree | Click the arrow. A collapsed tree shows how many tabs it hides |
-| Rearrange | Drag a tab with its subtree. Drop on the top edge of another tab to go before it, on the middle to become its child, on the bottom edge to go after it, or below the list to go to the end. Drag to another window's panel to move it there |
+| Collapse or expand a tree | Click the arrow. A collapsed tree shows how many tabs it hides; collapsing the tree you are in moves you to its top tab |
+| Rearrange | Drag a tab with its subtree. Drop on the top quarter of a tab to go before it, on its middle to become its last child, on its bottom quarter to go after it and the tabs under it (or, if its children are showing, to become its first child), or below the list to go to the end, at the top level. Drag to another window's panel to move it there |
+| Use a tab's link elsewhere | Drag its row out of the panel, onto the bookmarks bar, say |
 | Change a tree's colour | Right-click a tab in it and click a colour |
 | Rename a tree's tab group | Right-click a tab in it and type in the name field |
-| Mute a tab that plays sound | Click the speaker on its row |
+| Mute or unmute a tab | Click the speaker on its row (it shows while the tab plays sound, crossed out while muted) |
 | Everything else | Right-click: New tab as child, Reload, Duplicate, Pin, Mute, group name, tree colour, Ungroup/Group in tab strip, Collapse/Expand tree, Move to top level, Move tree to new window, Close children, Close tree, Close tab |
+| Use a pinned tab | Click its icon above the tree to switch to it, middle-click to close it; right-click for Reload, Duplicate, Unpin, Mute, Move to new window, Close tab |
 | Collapse or expand all | ⋯ menu at the top |
 | Change the settings | ⋯ menu at the top → Settings… |
 | Change the keyboard shortcut | ⋯ menu at the top → Keyboard shortcut… |
-| Find a tab | Type in the search box: matches show with their parents. Enter switches to the first match, Esc clears |
-| Use the keyboard | ↑ ↓ move, Home and End go to the first and last tab, ← → collapse/expand or go to the parent/child, Enter or Space switches, Delete closes, the Menu key opens the right-click menu |
+| Find a tab | Type in the search box: tabs whose title or address match show with their parents, in collapsed trees too (pinned tabs aren't searched). ↓ moves to the results, Enter switches to the first match, Esc clears. While you search, the tabs can't be dragged |
+| Use the keyboard | ↑ ↓ move, Home and End go to the first and last tab, ← → collapse/expand or go to the parent/child, Enter or Space switches, Delete closes, the Menu key opens the right-click menu. In that menu: ↑ ↓ Home End move, ← → move among the colours, Esc closes |
 | Open a tab | **New tab** under the list, or double-click the empty space |
+
+**New tab as child** opens the tab as the last child and switches to it; **Duplicate** puts the
+copy right after the tab and the tabs under it; **Move to top level** puts the tab and its subtree
+right after its tree. A row shows a spinner while its tab loads, a dimmed title while it sleeps,
+and a highlight while it is selected in the tab strip; hover it for its title and address.
 
 Rearranging in the panel also moves the real tabs in the browser's tab strip, so both stay in
 the same order. The active tab is always kept visible: switching to a tab inside a collapsed tree
@@ -193,26 +217,34 @@ too, unless it would hide the active tab there.
   snapshot. Chrome gives every restored tab a new id, so tabs are matched by URL, window by
   window; Edge keeps the ids, so they are matched by id. A tab that can't be matched starts at
   the top level, and the children of a tab the browser didn't restore move up to its parent.
+- A window you close while the browser keeps running keeps its tree too, and gets it back when
+  it comes back: from **History → Recently closed**, with **Ctrl+Shift+T**, or when you reopen
+  the browser after closing its last window, if it kept running in the background (Edge does by
+  default, with **Startup boost**). The browser brings the window back with new tabs, which are
+  matched by URL. The trees of the last ten windows closed this way are kept. A single tab you
+  reopen with Ctrl+Shift+T comes back at the top level.
 - Tree colours are kept with the tree, and so is which trees are collapsed.
 - Group names, and the trees you took out of the groups, are kept with the tree too. After a
-  reload or a restart, the trees take their groups back.
-- Everything stays in your browser profile (`chrome.storage`); nothing is sent anywhere. The
-  snapshot holds the URLs of your open tabs, never those of incognito windows. See
-  [PRIVACY.md](PRIVACY.md).
+  reload, a restart or a window's return, the trees take their groups back.
+- While the browser runs, the tree is kept in its memory (`chrome.storage.session`). The
+  snapshot, the closed windows' trees and your settings are saved in your browser profile
+  (`chrome.storage.local`). They hold the addresses of your tabs, never those of incognito
+  windows, and nothing of them is sent anywhere. See [PRIVACY.md](PRIVACY.md).
 
 ## Permissions
 
-| Permission | What the browser calls it | Why the extension needs it |
+| Permission | The browser's warning | Why the extension needs it |
 | --- | --- | --- |
-| `tabs` | Read your browsing history | To show each tab's title, icon and address in the panel, and to find tabs again by address after a browser restart |
-| `webNavigation` | Read your browsing history | To learn which tab a link was opened from, which places a tab in the tree |
+| `tabs` | Read your browsing history | To show each tab's title, icon and address in the panel, to search them, to name groups after their pages, and to find tabs again by address after a restart or when a closed window comes back |
+| `webNavigation` | (part of the one above) | To learn which tab a link was opened from, which places the new tab in the tree |
+| `favicon` | (part of the one above) | To show a site's icon from the browser's own store of them when the page's icon can't be loaded |
 | `tabGroups` | View and manage your tab groups | To make each tree a tab group, and to follow the changes you make to groups |
-| `sidePanel` | (none shown) | To show the tree in the browser's side panel |
-| `storage` | (none shown) | To keep the tree, its colours and your settings in your browser profile |
-| `favicon` | (none shown) | To show each site's icon in the panel |
+| `sidePanel` | (none) | To show the tree in the browser's side panel |
+| `storage` | (none) | To keep the tree, its colours and your settings, and the snapshot of your open tabs' addresses for after a restart |
 
-The extension has no access to the content of the pages you visit, and makes no network
-requests.
+The extension has no access to the content of the pages you visit. It sends nothing anywhere: the
+only things it loads from the web are the site icons of your open tabs, from the addresses the
+pages give for them, as the tab strip shows them.
 
 ## Limitations
 
