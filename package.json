@@ -1,0 +1,22 @@
+{
+  "name": "vertical-tree-tabs",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Chrome and Edge extension: vertical tabs in the side panel, nested as a tree under the tab each one was opened from.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/oshri-almog/VerticalTreeTabs.git"
+  },
+  "homepage": "https://github.com/oshri-almog/VerticalTreeTabs#readme",
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "test:e2e": "node test/e2e.mjs",
+    "icons": "node scripts/make-icons.mjs",
+    "screenshots": "node scripts/screenshot.mjs"
+  },
+  "devDependencies": {
+    "puppeteer-core": "^25.16.0"
+  }
+}

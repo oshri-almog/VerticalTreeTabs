@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Vertical Tree Tabs settings</title>
+  <link rel="stylesheet" href="options.css">
+  <script type="module" src="options.js"></script>
+</head>
+<body>
+  <form id="settings">
+    <fieldset>
+      <legend>Tab groups in the tab strip</legend>
+      <label>
+        <input type="radio" name="groups" value="trees">
+        <span><strong>One group per tree</strong>
+          The top tab and every tab under it share a tab group, in the tree's colour, named after the top tab's page.</span>
+      </label>
+      <label>
+        <input type="radio" name="groups" value="innermost">
+        <span><strong>One group per innermost subtree</strong>
+          A tab and the tabs opened from it share a group as long as none of those has tabs of its own. Each such
+          group has a colour of its own, in the panel too.</span>
+      </label>
+      <label>
+        <input type="radio" name="groups" value="pages">
+        <span><strong>One group per page</strong>
+          A tab and the tabs opened from it share a group. When one of those opens a tab, it moves out of the group,
+          right after its end, and leads a new group with the tab it opened; the group it left stays. Each group has a
+          colour of its own, in the panel too.</span>
+      </label>
+      <label>
+        <input type="radio" name="groups" value="branches">
+        <span><strong>One group per branch</strong>
+          The top tab and the tabs opened from it share a group. When one of those opens a tab, it moves out of the
+          group, right after its end, and leads a new group with that tab and everything later opened from it; each
+          further tab it opens starts another group of its own. Each group has a colour of its own, in the panel too.</span>
+      </label>
+      <label>
+        <input type="radio" name="groups" value="off">
+        <span><strong>No groups</strong>
+          The extension makes no tab groups, and ungroups the ones it made.</span>
+      </label>
+    </fieldset>
+
+    <fieldset>
+      <legend>Tab groups you made yourself</legend>
+      <label>
+        <input type="radio" name="ownGroups" value="leave">
+        <span><strong>Leave them alone</strong>
+          A tree with tabs in one of your groups gets no group from the extension. One of your groups that holds
+          exactly one tree becomes that tree's group, and keeps its name and colour.</span>
+      </label>
+      <label>
+        <input type="radio" name="ownGroups" value="regroup">
+        <span><strong>Regroup them by tree</strong>
+          The tabs of every tree go into the tree's own group, out of the groups you made.</span>
+      </label>
+    </fieldset>
+  </form>
+  <p class="note">Rename a group, or change its colour, from the right-click menu of any of its tabs in the panel, or
+    by right-clicking the group's name in the tab strip.</p>
+</body>
+</html>

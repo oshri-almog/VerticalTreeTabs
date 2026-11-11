@@ -1,0 +1,632 @@
+:root {
+  color-scheme: light dark;
+  --bg: #ffffff;
+  --fg: #1f1f1f;
+  --fg-soft: #5e5e5e;
+  --hover: rgba(31, 31, 31, 0.06);
+  --press: rgba(31, 31, 31, 0.1);
+  --active: #d3e3fd;
+  --active-fg: #041e49;
+  --selected: rgba(11, 87, 208, 0.08);
+  --guide: rgba(31, 31, 31, 0.24);
+  --accent: #0b57d0;
+  --field: #eff1f4;
+  --menu: #ffffff;
+  --menu-border: rgba(31, 31, 31, 0.12);
+  --shadow: 0 4px 16px rgba(0, 0, 0, 0.14), 0 1px 3px rgba(0, 0, 0, 0.1);
+  --count: rgba(31, 31, 31, 0.08);
+  --mark: rgba(255, 200, 40, 0.5);
+  --row-h: 28px;
+  --indent: 16px;
+  --chip-hover: rgba(255, 255, 255, 0.2);
+  /* Tree colours (TREE_COLORS in tree.js): the tree (-0), its subtrees (-1) and theirs (-2),
+     each at least 4.5:1 on the background and 3:1 on the hover, selected and active fills. */
+  --tree-blue-0: #0074c8; --tree-blue-1: #005494; --tree-blue-2: #003763;
+  --tree-cyan-0: #00808e; --tree-cyan-1: #005e68; --tree-cyan-2: #003d45;
+  --tree-green-0: #00893d; --tree-green-1: #00642b; --tree-green-2: #00421a;
+  --tree-yellow-0: #8e7300; --tree-yellow-1: #685300; --tree-yellow-2: #433500;
+  --tree-orange-0: #b75000; --tree-orange-1: #853900; --tree-orange-2: #592300;
+  --tree-red-0: #cc2827; --tree-red-1: #9d0610; --tree-red-2: #6a0006;
+  --tree-pink-0: #c1297e; --tree-pink-1: #930b5c; --tree-pink-2: #64003d;
+  --tree-purple-0: #8e47cd; --tree-purple-1: #6a2c9e; --tree-purple-2: #481172;
+  --tree-grey-0: #6d7279; --tree-grey-1: #4f5359; --tree-grey-2: #32363b;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1f1f1f;
+    --fg: #e3e3e3;
+    --fg-soft: #a9a9a9;
+    --hover: rgba(227, 227, 227, 0.08);
+    --press: rgba(227, 227, 227, 0.14);
+    --active: #004a77;
+    --active-fg: #e8f2ff;
+    --selected: rgba(168, 199, 250, 0.1);
+    --guide: rgba(227, 227, 227, 0.24);
+    --accent: #a8c7fa;
+    --field: #2c2c2c;
+    --menu: #2c2c2c;
+    --menu-border: rgba(227, 227, 227, 0.12);
+    --shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+    --count: rgba(227, 227, 227, 0.12);
+    --mark: rgba(255, 200, 40, 0.32);
+    --chip-hover: rgba(31, 31, 31, 0.2);
+    --tree-blue-0: #48a2ff; --tree-blue-1: #7cbaff; --tree-blue-2: #c7e1ff;
+    --tree-cyan-0: #00c0d4; --tree-cyan-1: #00e0f7; --tree-cyan-2: #9bf2ff;
+    --tree-green-0: #06c95e; --tree-green-1: #7be093; --tree-green-2: #b7f3c2;
+    --tree-yellow-0: #e3aa00; --tree-yellow-1: #ffc641; --tree-yellow-2: #ffe5b1;
+    --tree-orange-0: #ff8505; --tree-orange-1: #ffb481; --tree-orange-2: #ffd9c0;
+    --tree-red-0: #ff716d; --tree-red-1: #ffaaa4; --tree-red-2: #ffd6d2;
+    --tree-pink-0: #fd65b2; --tree-pink-1: #ffa4cc; --tree-pink-2: #ffd3e5;
+    --tree-purple-0: #c082ff; --tree-purple-1: #d5b1ff; --tree-purple-2: #e9d9ff;
+    --tree-grey-0: #a0a5ac; --tree-grey-1: #c0c4cb; --tree-grey-2: #dee2e7;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--fg);
+  font: 13px/1.3 system-ui, "Segoe UI", Roboto, sans-serif;
+  user-select: none;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+}
+
+svg {
+  display: block;
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+}
+
+/* ---- toolbar ---- */
+
+.toolbar {
+  display: flex;
+  flex: none;
+  gap: 4px;
+  align-items: center;
+  padding: 8px 6px 6px 8px;
+}
+
+.search {
+  display: flex;
+  flex: 1;
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 16px;
+  background: var(--field);
+  color: var(--fg-soft);
+}
+
+.search:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+}
+
+.icon-button {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--fg-soft);
+  cursor: pointer;
+}
+
+.icon-button:hover {
+  background: var(--hover);
+}
+
+/* ---- pinned tabs ---- */
+
+.pinned {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 0 8px 6px;
+  border-bottom: 1px solid var(--guide);
+}
+
+.pinned[hidden] {
+  display: none;
+}
+
+.pin {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 30px;
+  border-radius: 8px;
+}
+
+.pin:hover {
+  background: var(--hover);
+}
+
+.pin.active {
+  background: var(--active);
+}
+
+/* ---- tree ---- */
+
+.scroller {
+  position: relative;
+  flex: 1;
+  padding: 4px 0 32px;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.tree {
+  outline: none;
+}
+
+/* One 2px guide line per ancestor level, in the shade of the tree colour that the ancestor
+   heads, centred under that ancestor's twisty (6px row padding + 2px tab padding + half of
+   the 16px twisty = 16px). sidepanel.js draws them into --lines. */
+.row {
+  --pad: calc(var(--depth, 0) * var(--indent));
+  height: calc(var(--row-h) + 2px);
+  padding: 1px 6px 1px calc(6px + var(--pad));
+  background: var(--lines, none) no-repeat;
+}
+
+.tab {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  height: var(--row-h);
+  padding: 0 4px 0 2px;
+  border-radius: 8px;
+}
+
+.row:hover .tab {
+  background: var(--hover);
+}
+
+.row.selected .tab {
+  background: var(--selected);
+}
+
+.row.active .tab {
+  background: var(--active);
+  color: var(--active-fg);
+}
+
+.tree.keyboard .row.focused .tab {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.twisty {
+  position: relative;
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  color: var(--fg-soft);
+  visibility: hidden;
+}
+
+.row.active .twisty {
+  color: inherit;
+}
+
+.row.parent .twisty {
+  visibility: visible;
+  cursor: pointer;
+}
+
+.row.parent .twisty:hover {
+  background: var(--press);
+}
+
+.twisty svg {
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transform: rotate(90deg);
+  transition: transform 0.12s;
+}
+
+.row.collapsed .twisty svg {
+  transform: none;
+}
+
+/* ---- tree colours ----
+   The twisty of a tab with children is a chip in its shade (--own), like a tab group's header,
+   joined by a stem to the line its children hang from. */
+
+.row[data-color].parent .twisty {
+  background: var(--own);
+  color: var(--bg);
+}
+
+.row[data-color].parent .twisty:hover {
+  background: linear-gradient(var(--chip-hover), var(--chip-hover)) var(--own);
+}
+
+.row[data-color].open .twisty::after {
+  content: "";
+  position: absolute;
+  top: 16px;
+  left: 7px;
+  width: 2px;
+  height: calc(var(--row-h) / 2 - 7px); /* down to the row's bottom edge */
+  background: var(--own);
+}
+
+.icon {
+  position: relative;
+  flex: none;
+  width: 16px;
+  height: 16px;
+}
+
+.favicon {
+  display: block;
+  width: 16px;
+  height: 16px;
+}
+
+.icon.fallback {
+  border-radius: 50%;
+  background: var(--count);
+}
+
+.icon.fallback .favicon {
+  display: none;
+}
+
+.spinner {
+  position: absolute;
+  inset: 1px;
+  display: none;
+  border: 2px solid var(--accent);
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.loading .spinner {
+  display: block;
+}
+
+.loading .favicon {
+  visibility: hidden;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.row.discarded .title {
+  opacity: 0.6;
+}
+
+.row.dim .tab {
+  opacity: 0.55;
+}
+
+.title mark {
+  border-radius: 2px;
+  background: var(--mark);
+  color: inherit;
+}
+
+.count {
+  display: none;
+  flex: none;
+  min-width: 20px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 9px;
+  background: var(--count);
+  color: var(--fg-soft);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  line-height: 18px;
+  text-align: center;
+}
+
+.row.active .count {
+  color: inherit;
+}
+
+.row.collapsed .count {
+  display: block;
+}
+
+.row[data-color].parent .count {
+  background: var(--own);
+  color: var(--bg);
+  font-weight: 600;
+}
+
+/* The name of the tab group that the tab heads, after its chip and in the chip's colour, drawn as
+   the count is. */
+.group-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 45%;
+  height: 18px;
+  padding: 0 6px;
+  overflow: hidden;
+  border-radius: 9px;
+  background: var(--own, var(--count));
+  color: var(--bg);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.group-name[hidden] {
+  display: none;
+}
+
+.audio,
+.close {
+  display: none;
+  flex: none;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--fg-soft);
+  cursor: pointer;
+}
+
+.row.active .audio,
+.row.active .close {
+  color: inherit;
+}
+
+.audio:hover,
+.close:hover {
+  background: var(--press);
+}
+
+.audio svg,
+.close svg {
+  width: 14px;
+  height: 14px;
+}
+
+.row.audible .audio,
+.row.muted .audio,
+.row:hover .close,
+.row.active .close {
+  display: grid;
+}
+
+.audio .waves,
+.audio .cross {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+}
+
+.row.muted .audio .waves,
+.row:not(.muted) .audio .cross {
+  display: none;
+}
+
+.new-tab {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  width: calc(100% - 12px);
+  height: var(--row-h);
+  margin: 2px 6px 0;
+  padding: 0 8px 0 24px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--fg-soft);
+  cursor: pointer;
+  text-align: left;
+}
+
+.new-tab:hover {
+  background: var(--hover);
+  color: var(--fg);
+}
+
+body.filtering .new-tab {
+  display: none;
+}
+
+.empty {
+  padding: 24px 16px;
+  color: var(--fg-soft);
+  text-align: center;
+}
+
+/* ---- drag and drop ---- */
+
+.row.dragging .tab {
+  opacity: 0.45; /* not the row: its ancestors' lines run on through it */
+}
+
+.row.drop-into .tab {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  background: var(--selected);
+}
+
+.drop-line {
+  position: absolute;
+  right: 8px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--accent);
+  box-shadow: 0 0 0 1px var(--bg); /* sets it off where it crosses coloured guide lines */
+  pointer-events: none;
+}
+
+.drop-line::before {
+  content: "";
+  position: absolute;
+  top: -3px;
+  left: -4px;
+  width: 8px;
+  height: 8px;
+  border: 2px solid var(--accent);
+  border-radius: 50%;
+  background: var(--bg);
+}
+
+/* ---- menu ---- */
+
+.menu {
+  position: fixed;
+  z-index: 10;
+  min-width: 190px;
+  max-width: calc(100vw - 8px);
+  padding: 6px 0;
+  border: 1px solid var(--menu-border);
+  border-radius: 8px;
+  background: var(--menu);
+  box-shadow: var(--shadow);
+}
+
+.menu button {
+  display: block;
+  width: 100%;
+  padding: 7px 16px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.menu button:hover,
+.menu button:focus {
+  outline: none;
+  background: var(--hover);
+}
+
+.menu .swatches {
+  display: flex;
+  padding: 2px 10px;
+}
+
+.menu .group-field {
+  display: block;
+  padding: 2px 12px 6px;
+}
+
+.menu .group-field input {
+  width: 100%;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--fg-soft);
+  border-radius: 6px;
+  background: var(--field);
+  color: var(--fg);
+  font: inherit;
+}
+
+.menu .group-field input:focus {
+  border-color: var(--accent);
+  outline: 1px solid var(--accent);
+}
+
+.menu .swatch {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border-radius: 50%;
+}
+
+.menu .swatch::before {
+  content: "";
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--swatch);
+  forced-color-adjust: none; /* the colours are the choice, in a contrast theme too */
+}
+
+.menu .swatch[aria-checked="true"]::before {
+  box-shadow: 0 0 0 2px var(--menu), 0 0 0 4px var(--swatch);
+}
+
+/* The focus background would hide behind the ring of the checked swatch. */
+.menu .swatch:focus-visible {
+  outline: 2px solid var(--fg);
+}
+
+@media (forced-colors: active) {
+  .menu .swatch[aria-checked="true"]::before {
+    box-shadow: 0 0 0 2px Canvas, 0 0 0 4px var(--swatch);
+  }
+}
+
+.menu hr {
+  height: 1px;
+  margin: 5px 0;
+  border: 0;
+  background: var(--menu-border);
+}

@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tree Tabs</title>
+  <link rel="stylesheet" href="sidepanel.css">
+  <script type="module" src="sidepanel.js"></script>
+</head>
+<body>
+  <header class="toolbar">
+    <label class="search">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10.9 10.1 14.4 13.6l-.8.8-3.5-3.5a5.3 5.3 0 1 1 .8-.8ZM6.7 11a4.3 4.3 0 1 0 0-8.6 4.3 4.3 0 0 0 0 8.6Z"/></svg>
+      <input id="filter" type="search" placeholder="Search tabs" autocomplete="off" spellcheck="false" aria-label="Search tabs">
+    </label>
+    <button id="more" class="icon-button" type="button" title="More actions" aria-label="More actions" aria-haspopup="menu">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="3.5" r="1.3"/><circle cx="8" cy="8" r="1.3"/><circle cx="8" cy="12.5" r="1.3"/></svg>
+    </button>
+  </header>
+
+  <div id="pinned" class="pinned" hidden></div>
+
+  <main id="scroller" class="scroller">
+    <div id="tree" class="tree" role="tree" tabindex="0" aria-label="Tabs"></div>
+    <div id="empty" class="empty" hidden>No matching tabs</div>
+    <button id="new-tab" class="new-tab" type="button">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M7.3 2.5h1.4v4.8h4.8v1.4H8.7v4.8H7.3V8.7H2.5V7.3h4.8Z"/></svg>
+      <span>New tab</span>
+    </button>
+    <div id="drop-line" class="drop-line" hidden></div>
+  </main>
+
+  <div id="menu" class="menu" role="menu" hidden></div>
+
+  <template id="row-template">
+    <div class="row" role="treeitem" draggable="true">
+      <div class="tab">
+        <span class="twisty" aria-hidden="true"><svg viewBox="0 0 16 16"><path d="M6 3.5 10.5 8 6 12.5"/></svg></span>
+        <span class="group-name" dir="auto" aria-hidden="true" hidden></span>
+        <span class="icon"><img class="favicon" alt="" draggable="false"><span class="spinner"></span></span>
+        <span class="title" dir="auto"></span>
+        <span class="count"></span>
+        <button class="audio" type="button" tabindex="-1">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path class="speaker" d="M2 6h2.6L8 3.2v9.6L4.6 10H2Z"/><path class="waves" d="M10.4 5.7a3.3 3.3 0 0 1 0 4.6M12.3 3.8a6 6 0 0 1 0 8.4"/><path class="cross" d="m10.3 6.3 3.4 3.4m0-3.4-3.4 3.4"/></svg>
+        </button>
+        <button class="close" type="button" tabindex="-1" title="Close tab" aria-label="Close tab">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4.6 3.6 3.4 3.4 3.4-3.4 1 1L9 8l3.4 3.4-1 1L8 9l-3.4 3.4-1-1L7 8 3.6 4.6Z"/></svg>
+        </button>
+      </div>
+    </div>
+  </template>
+</body>
+</html>
