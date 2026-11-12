@@ -167,13 +167,15 @@ Search for something and open a few results in new tabs: they appear under the s
 
 Features
 • Tabs as a tree, built as you browse
+• Folders: named tabs with an icon that hold the tabs you put in them (Alt+B)
 • A colour for every tree, with lighter and darker shades for the trees inside it
-• Tab groups in the tab strip that mirror the trees, at the level you choose: one group per tree, per innermost subtree, per page or per branch, or no groups. Your own tab groups can be left alone or regrouped.
+• Tab groups in the tab strip that mirror the trees, at the level you choose: one group per tree, per innermost subtree, per page or per branch, or no groups. Your own tab groups show in the panel too, and can be left alone or regrouped.
 • Collapse and expand trees; collapsing a tree collapses its tab group too
-• Drag and drop a tab with everything under it: rearrange, nest, or move it to another window
-• A right-click menu: new tab as child, reload, duplicate, pin, mute, rename or recolour a tree's group, move to the top level or to a new window, close children, close the tree
-• Search by title or address, and keyboard control of the whole tree
-• Light and dark themes
+• Drag and drop a tab with everything under it (or alone, with Ctrl): rearrange, nest, or move it to another window
+• Select several tabs with Ctrl+click and Shift+click, and move, group, close or reload them together
+• Choose where new tabs go (New Tab pages, links, bookmarks) and what happens when a tab closes
+• Find a tab in any window (Alt+G); search by words or a regular expression; keyboard control of the whole tree, and shortcuts for it from anywhere
+• Light and dark themes, compact or roomy rows, text sizes, and your own colours
 • Your trees come back after the browser restarts, and when you reopen a window you closed
 
 Open the panel with the toolbar button or Alt+T. Settings: the ⋯ menu at the top of the panel.
@@ -193,13 +195,15 @@ Search for something and open a few results in new tabs: they appear under the s
 
 Features
 • Tabs as a tree, built as you browse
+• Folders: named tabs with an icon that hold the tabs you put in them (Alt+B)
 • A colour for every tree, with lighter and darker shades for the trees inside it
-• Tab groups in the tab strip that mirror the trees, at the level you choose: one group per tree, per innermost subtree, per page or per branch, or no groups. Your own tab groups can be left alone or regrouped.
+• Tab groups in the tab strip that mirror the trees, at the level you choose: one group per tree, per innermost subtree, per page or per branch, or no groups. Your own tab groups show in the sidebar too, and can be left alone or regrouped.
 • Collapse and expand trees; collapsing a tree collapses its tab group too
-• Drag and drop a tab with everything under it: rearrange, nest, or move it to another window
-• A right-click menu: new tab as child, reload, duplicate, pin, mute, rename or recolour a tree's group, move to the top level or to a new window, close children, close the tree
-• Search by title or address, and keyboard control of the whole tree
-• Light and dark themes
+• Drag and drop a tab with everything under it (or alone, with Ctrl): rearrange, nest, or move it to another window
+• Select several tabs with Ctrl+click and Shift+click, and move, group, close or reload them together
+• Choose where new tabs go (New Tab pages, links, favorites) and what happens when a tab closes
+• Find a tab in any window (Alt+G); search by words or a regular expression; keyboard control of the whole tree, and shortcuts for it from anywhere
+• Light and dark themes, compact or roomy rows, text sizes, and your own colours
 • Your trees come back after the browser restarts, and when you reopen a window you closed, also with Startup boost
 
 Open the sidebar with the toolbar button or Alt+T. Settings: the ⋯ menu at the top of the sidebar.
@@ -221,16 +225,16 @@ Tab management: shows the tabs of the current window in the side panel as a tree
 | Permission | Justification |
 | --- | --- |
 | `tabs` | Reads each tab's title, address and icon address to show the tabs in the panel's tree, to search them, and to name tab groups after their pages. It also matches tabs to the saved tree by address after a browser restart or when a closed window is reopened, since tabs then get new ids. No host permissions are requested. |
-| `webNavigation` | Only webNavigation.onCreatedNavigationTarget is used: it tells which tab a link opened a new tab from, so that the new tab is placed under it in the tree. The opener id that the tabs API gives is not used, because the browser also sets it for tabs opened with Ctrl+T or the New Tab button. No page content is read. |
+| `webNavigation` | webNavigation.onCreatedNavigationTarget tells which tab a link opened a new tab from, so that the new tab is placed under it in the tree (the opener id of the tabs API is no substitute: the browser also sets it for Ctrl+T). webNavigation.onCommitted's transition type tells which new tabs were opened from a bookmark, which the user can choose to place by the current tab. No page content is read. |
 | `tabGroups` | Mirrors each tree as a native tab group (creates, names, colours, collapses and ungroups the groups it made) and follows the user's own changes to those groups. The settings page sets the level of grouping, or turns it off. |
 | `sidePanel` | The extension's whole interface is a side panel page, opened with the toolbar button or the Alt+T shortcut. |
-| `storage` | storage.session keeps the tree while the browser runs. storage.local keeps the settings and, to rebuild the tree after a restart or when a closed window is reopened, the addresses and tree of the open normal windows and of up to ten recently closed windows. Nothing is synced or sent. |
+| `storage` | storage.session keeps the tree while the browser runs, the current tab of each window, and the addresses of the last 30 tabs closed in normal windows for half an hour (so that a reopened tab goes back under its parent). storage.local keeps the settings, the user's chosen colours and, to rebuild the tree after a restart or when a closed window is reopened, the addresses and tree of the open normal windows and of up to ten recently closed windows. Nothing is synced or sent. |
 | `favicon` | Shows a tab's site icon from the browser's own icon cache when the tab has no usable icon address or its icon fails to load. |
 
 ### Instructions for the reviewers
 
 ```text
-No account or sign-in is needed, and nothing opens on install. Click the extension's toolbar button (it may be inside the browser's Extensions menu) or press Alt+T to open the panel. Open any page with links and middle-click a few of them: the new tabs appear under it in the tree, and the tree becomes a tab group. Right-click a row for the menu (colour, group name, close tree, move tree to a new window). The settings (⋯ menu at the top of the panel → Settings…) choose how tabs are grouped. The extension has no content scripts and no host permissions, and sends no data.
+No account or sign-in is needed, and nothing opens on install. Click the extension's toolbar button (it may be inside the browser's Extensions menu) or press Alt+T to open the panel. Open any page with links and middle-click a few of them: the new tabs appear under it in the tree, and the tree becomes a tab group. Right-click a row for the menu (colour, group name, folders, close tree, move tree to a new window). Alt+B puts the current tab in a new folder, a tab showing the extension's own folder page. The settings (⋯ menu at the top of the panel → Settings…) choose how tabs are grouped, where new tabs go and how the panel looks. The extension has no content scripts and no host permissions, and sends no data.
 ```
 
 ### Search terms (Edge)

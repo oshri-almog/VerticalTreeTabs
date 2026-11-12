@@ -68,3 +68,15 @@ for (const [theme, t] of Object.entries(THEMES)) {
     assert.match(t.block, /--chip-hover: rgba\(/);
   });
 }
+
+test('the dark theme the settings choose is the same as the browser\'s dark theme', () => {
+  // The browser's (in the media query) and the one the setting `theme` forces (see applyLook in sidepanel.js).
+  const block = (selector) => {
+    const at = css.indexOf(`${selector} {`);
+    assert.ok(at >= 0, `no ${selector} block`);
+    return css.slice(at, css.indexOf('}', at)).split(/\r?\n/).slice(1).map((line) => line.trim()).filter(Boolean);
+  };
+  const forced = block(':root[data-theme="dark"]');
+  assert.ok(forced.length > 20, 'the forced dark theme has its colours');
+  assert.deepEqual(forced, block(':root:not([data-theme="light"])'));
+});

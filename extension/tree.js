@@ -352,17 +352,23 @@ export function flatten(forest, nodes, { matches = null, colors = null, units = 
  * if the child still heads a tree then.) If it was its parent's first link, or another of the tabs of
  * its parent's branch, they take its place there (see handOnFirstLink).
  */
-export function removeNode(nodes, id) {
+export function removeNode(nodes, id, promote = null) {
   const node = nodes[id];
   const parent = node ? node.parent : null;
   const color = colorOf(node);
+  // With `promote` (one of its children: the setting closeParent), that child takes its place and the others go under it.
+  const heir = promote != null && nodes[promote]?.parent === id ? promote : null;
   const kids = [];
   for (const key in nodes) {
     const child = nodes[key];
     if (child.parent !== id) continue;
-    child.parent = parent;
+    const kid = Number(key);
+    const up = heir == null || kid === heir;
+    child.parent = up ? parent : heir;
     if (color && child.heir == null) child.heir = color;
-    kids.push(Number(key));
+    if (up) kids.push(kid);
+    // The tabs that go under the heir show as they showed under the closed tab: a collapsed heir opens for them.
+    else if (!node?.collapsed && nodes[heir]?.collapsed) nodes[heir].collapsed = false;
   }
   handOnFirstLink(nodes, parent, id, kids);
   delete nodes[id];
@@ -393,6 +399,50 @@ export function handOnFirstLink(nodes, parent, id, kids) {
   } else return;
   if (rest.length) node.alsoLinks = rest;
   else delete node.alsoLinks;
+}
+
+/**
+ * Where a new tab goes by tab `ref` (see the settings newTabPlacement and bookmarkPlacement, and the panel's New tab
+ * button): { parent, after }, its parent and the tab it goes right after in the strip, or null when `ref` is no tree
+ * tab of `forest`. `where`: 'afterTree' at the top level after the tree `ref` is in; 'sibling' next to `ref`, after the
+ * tabs under it; 'child' under `ref`, the last; 'firstChild' under `ref`, the first. `exclude`: the new tab, should it
+ * be in `forest` already.
+ */
+export function placeNear(forest, ref, where, exclude = new Set()) {
+  if (ref == null || !forest.parentOf.has(ref) || exclude.has(ref)) return null;
+  switch (where) {
+    case 'afterTree': {
+      let root = ref;
+      while (forest.parentOf.get(root) != null) root = forest.parentOf.get(root);
+      return { parent: null, after: lastOfSubtree(forest, root, exclude) };
+    }
+    case 'sibling': return { parent: forest.parentOf.get(ref) ?? null, after: lastOfSubtree(forest, ref, exclude) };
+    case 'child': return { parent: ref, after: lastOfSubtree(forest, ref, exclude) };
+    case 'firstChild': return { parent: ref, after: ref };
+    default: return null;
+  }
+}
+
+/**
+ * The tab to make active when the active tab `closed` closes, by the tree (the setting afterClose): its first child,
+ * else the next tab of its parent's after it, else the one before it, else its parent; null when none is open (the
+ * browser's pick stands then). `order`: the window's tab ids in strip order as they were before it closed (it among
+ * them); `nodes`: as they were before it closed; `open`: the tab ids open now, unpinned.
+ */
+export function nextAfterClose(order, closed, nodes, open) {
+  const at = order.indexOf(closed);
+  const isOpen = (id) => open.has(id);
+  const kid = order.find((id) => isOpen(id) && nodes[id]?.parent === closed);
+  if (kid != null) return kid;
+  const parent = nodes[closed]?.parent ?? null;
+  const sibling = (id) => id !== closed && isOpen(id) && (nodes[id]?.parent ?? null) === parent;
+  if (at >= 0) {
+    const below = order.slice(at + 1).find(sibling);
+    if (below != null) return below;
+    const above = order.slice(0, at).reverse().find(sibling);
+    if (above != null) return above;
+  }
+  return parent != null && isOpen(parent) ? parent : null;
 }
 
 /** The member of `id`'s subtree, outside `exclude`, that comes last in native order. */

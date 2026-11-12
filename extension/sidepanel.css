@@ -18,6 +18,7 @@
   --mark: rgba(255, 200, 40, 0.5);
   --row-h: 28px;
   --indent: 16px;
+  --text: 13px; /* the setting textSize: see below */
   --chip-hover: rgba(255, 255, 255, 0.2);
   /* Tree colours (TREE_COLORS in tree.js): the tree (-0), its subtrees (-1) and theirs (-2),
      each at least 4.5:1 on the background and 3:1 on the hover, selected and active fills. */
@@ -33,7 +34,7 @@
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg: #1f1f1f;
     --fg: #e3e3e3;
     --fg-soft: #a9a9a9;
@@ -63,6 +64,62 @@
   }
 }
 
+/* The same, when the settings choose the dark theme whatever the browser's is (see applyLook in sidepanel.js). Keep the
+   two the same: colors.test.js checks it. */
+:root[data-theme="dark"] {
+  --bg: #1f1f1f;
+  --fg: #e3e3e3;
+  --fg-soft: #a9a9a9;
+  --hover: rgba(227, 227, 227, 0.08);
+  --press: rgba(227, 227, 227, 0.14);
+  --active: #004a77;
+  --active-fg: #e8f2ff;
+  --selected: rgba(168, 199, 250, 0.1);
+  --guide: rgba(227, 227, 227, 0.24);
+  --accent: #a8c7fa;
+  --field: #2c2c2c;
+  --menu: #2c2c2c;
+  --menu-border: rgba(227, 227, 227, 0.12);
+  --shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  --count: rgba(227, 227, 227, 0.12);
+  --mark: rgba(255, 200, 40, 0.32);
+  --chip-hover: rgba(31, 31, 31, 0.2);
+  --tree-blue-0: #48a2ff; --tree-blue-1: #7cbaff; --tree-blue-2: #c7e1ff;
+  --tree-cyan-0: #00c0d4; --tree-cyan-1: #00e0f7; --tree-cyan-2: #9bf2ff;
+  --tree-green-0: #06c95e; --tree-green-1: #7be093; --tree-green-2: #b7f3c2;
+  --tree-yellow-0: #e3aa00; --tree-yellow-1: #ffc641; --tree-yellow-2: #ffe5b1;
+  --tree-orange-0: #ff8505; --tree-orange-1: #ffb481; --tree-orange-2: #ffd9c0;
+  --tree-red-0: #ff716d; --tree-red-1: #ffaaa4; --tree-red-2: #ffd6d2;
+  --tree-pink-0: #fd65b2; --tree-pink-1: #ffa4cc; --tree-pink-2: #ffd3e5;
+  --tree-purple-0: #c082ff; --tree-purple-1: #d5b1ff; --tree-purple-2: #e9d9ff;
+  --tree-grey-0: #a0a5ac; --tree-grey-1: #c0c4cb; --tree-grey-2: #dee2e7;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+/* The settings' row height and text size (see applyLook in sidepanel.js). */
+:root[data-density="compact"] {
+  --row-h: 24px;
+}
+
+:root[data-density="roomy"] {
+  --row-h: 34px;
+}
+
+:root[data-text-size="small"] {
+  --text: 12px;
+}
+
+:root[data-text-size="large"] {
+  --text: 15px;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -79,7 +136,7 @@ body {
   overflow: hidden;
   background: var(--bg);
   color: var(--fg);
-  font: 13px/1.3 system-ui, "Segoe UI", Roboto, sans-serif;
+  font: var(--text)/1.3 system-ui, "Segoe UI", Roboto, sans-serif;
   user-select: none;
 }
 
@@ -224,7 +281,7 @@ svg {
 }
 
 .row.active .tab {
-  background: var(--active);
+  background: var(--active-paint, var(--active)); /* --active-paint: the user's gradient (see applyColors) */
   color: var(--active-fg);
 }
 
@@ -317,6 +374,33 @@ svg {
 
 .icon.fallback .favicon {
   display: none;
+}
+
+/* A folder's icon is its emoji (see folders.js), whether its page has loaded or not. */
+.emoji {
+  display: none;
+  width: 16px;
+  height: 16px;
+  font-size: 14px;
+  line-height: 16px;
+  text-align: center;
+}
+
+.folder .emoji {
+  display: block;
+}
+
+.folder .favicon,
+.folder .spinner {
+  display: none !important;
+}
+
+.folder .icon.fallback {
+  background: none;
+}
+
+.row.folder .title {
+  font-weight: 600;
 }
 
 .spinner {
@@ -417,6 +501,7 @@ svg {
   display: none;
 }
 
+.add,
 .audio,
 .close {
   display: none;
@@ -432,16 +517,19 @@ svg {
   cursor: pointer;
 }
 
+.row.active .add,
 .row.active .audio,
 .row.active .close {
   color: inherit;
 }
 
+.add:hover,
 .audio:hover,
 .close:hover {
   background: var(--press);
 }
 
+.add svg,
 .audio svg,
 .close svg {
   width: 14px;
@@ -451,7 +539,8 @@ svg {
 .row.audible .audio,
 .row.muted .audio,
 .row:hover .close,
-.row.active .close {
+.row.active .close,
+.row.folder:hover .add {
   display: grid;
 }
 
@@ -482,6 +571,10 @@ svg {
   color: var(--fg-soft);
   cursor: pointer;
   text-align: left;
+}
+
+.new-tab[hidden] {
+  display: none;
 }
 
 .new-tab:hover {
@@ -564,9 +657,30 @@ body.filtering .new-tab {
   background: var(--hover);
 }
 
-.menu .swatches {
+.menu .swatches,
+.menu .icons {
   display: flex;
   padding: 2px 10px;
+}
+
+.menu .icons {
+  flex-wrap: wrap;
+}
+
+.menu .icon-choice {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: 6px;
+  font-size: 15px;
+}
+
+.menu .icon-choice[aria-checked="true"] {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 .menu .group-field {
@@ -629,4 +743,265 @@ body.filtering .new-tab {
   margin: 5px 0;
   border: 0;
   background: var(--menu-border);
+}
+
+/* The selection's count, at the top of its menu. */
+.menu .menu-label {
+  padding: 4px 16px 6px;
+  color: var(--fg-soft);
+  font-size: 12px;
+}
+
+/* Asking before closing several tabs (see confirmClose in sidepanel.js). */
+.dialog {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.32);
+}
+
+.dialog[hidden] {
+  display: none;
+}
+
+.dialog-box {
+  width: min(100%, 320px);
+  padding: 16px;
+  border: 1px solid var(--menu-border);
+  border-radius: 12px;
+  background: var(--menu);
+  box-shadow: var(--shadow);
+}
+
+.dialog-box p {
+  margin: 0 0 14px;
+  overflow-wrap: anywhere;
+}
+
+.dialog-buttons {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.dialog-buttons button {
+  min-width: 72px;
+  height: 30px;
+  padding: 0 14px;
+  border: 1px solid var(--menu-border);
+  border-radius: 15px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+}
+
+.dialog-buttons button.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--bg);
+}
+
+.dialog-buttons button:focus-visible {
+  outline: 2px solid var(--fg);
+  outline-offset: 2px;
+}
+
+/* A short notice that an action did not work. */
+.toast {
+  position: fixed;
+  right: 8px;
+  bottom: 8px;
+  left: 8px;
+  z-index: 15;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--fg);
+  color: var(--bg);
+  font-size: 12px;
+  box-shadow: var(--shadow);
+}
+
+.toast[hidden] {
+  display: none;
+}
+
+/* A tab in a tab group of the user's own (not one the extension made): a band in the group's colour, and the group's
+   name on the first of its tabs in the panel. */
+.row.in-group .tab {
+  box-shadow: inset 3px 0 0 var(--group);
+}
+
+.group-name.theirs {
+  background: var(--group);
+}
+
+/* Pinned tabs reorder by a drag: where the dragged one goes. */
+.pin.drop-before {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.pin.drop-after {
+  box-shadow: inset -3px 0 0 var(--accent);
+}
+
+/* An icon for a page that gives none (see pageGlyph in sidepanel.js): the browser's own pages, other extensions'. */
+.glyph .emoji {
+  display: block;
+  font-size: 12px;
+}
+
+.glyph .favicon,
+.glyph .spinner {
+  display: none !important;
+}
+
+.glyph .icon.fallback {
+  background: none;
+}
+
+/* A tab opened in the background, not looked at yet (the setting unread). */
+:root:not([data-unread]) .row.unread .icon::after,
+:root[data-unread="dot"] .row.unread .icon::after {
+  content: "";
+  position: absolute;
+  right: -3px;
+  bottom: -2px;
+  width: 7px;
+  height: 7px;
+  border: 1.5px solid var(--bg);
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+:root[data-unread="bold"] .row.unread .title {
+  font-weight: 700;
+}
+
+/* Rows far out of view are not drawn (hundreds of tabs): their place stays. */
+.row {
+  content-visibility: auto;
+  contain-intrinsic-size: auto calc(var(--row-h) + 2px); /* its height: see .row above */
+}
+
+/* A search dims the rows that only lead to a match; one shows in full under the pointer. */
+.row.dim:hover .tab {
+  opacity: 1;
+}
+
+/* A row that comes eases in, unless the system asks for less motion. */
+@media (prefers-reduced-motion: no-preference) {
+  .row.entering .tab {
+    animation: row-in 160ms ease-out;
+  }
+}
+
+@keyframes row-in {
+  from {
+    opacity: 0;
+    transform: translateX(-6px);
+  }
+}
+
+/* The .* button in the search box: the search is a regular expression. */
+.regex-toggle {
+  flex: none;
+  height: 20px;
+  padding: 0 5px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg-soft);
+  font: 600 11px/20px ui-monospace, Consolas, monospace;
+  cursor: pointer;
+}
+
+.regex-toggle:hover {
+  background: var(--press);
+}
+
+.regex-toggle[aria-pressed="true"] {
+  background: var(--accent);
+  color: var(--bg);
+}
+
+/* A regular expression that is none. */
+.search:has(input.invalid) {
+  outline: 2px solid var(--tree-red-0);
+  outline-offset: -2px;
+}
+
+/* The address of a tab that only its address matched (see paintRow). */
+.url {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 50%;
+  overflow: hidden;
+  color: var(--fg-soft);
+  font-size: 11px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.url[hidden] {
+  display: none;
+}
+
+.url mark {
+  border-radius: 2px;
+  background: var(--mark);
+  color: inherit;
+}
+
+/* The setting searchBox 'hide': no search box, until Ctrl+F (or /) in the panel. */
+:root[data-search-box="hide"] .search:not(.shown) {
+  display: none;
+}
+
+/* While the worker rebuilds the tree (see showRestoring in sidepanel.js). */
+.restoring {
+  flex: none;
+  margin: 0 8px 4px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--selected);
+  color: var(--fg-soft);
+  font-size: 12px;
+}
+
+.restoring[hidden] {
+  display: none;
+}
+
+/* A long menu scrolls; a submenu (›) opens in its place, with a way back. */
+.menu {
+  max-height: calc(100vh - 8px);
+  overflow-y: auto;
+}
+
+.menu .back {
+  color: var(--fg-soft);
+}
+
+/* The user's own colours (see applyColors): the colours that go with them follow from them. */
+:root[data-own-colors] {
+  --menu: var(--bg);
+  --field: color-mix(in srgb, var(--fg) 8%, var(--bg));
+  --fg-soft: color-mix(in srgb, var(--fg) 65%, var(--bg));
+  --menu-border: color-mix(in srgb, var(--fg) 12%, transparent);
+  --count: color-mix(in srgb, var(--fg) 10%, transparent);
+  --press: color-mix(in srgb, var(--fg) 12%, transparent);
+  --guide: color-mix(in srgb, var(--fg) 24%, transparent);
+  --selected: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.menu {
+  color: var(--fg);
+}
+
+.dialog-box:focus {
+  outline: none;
 }

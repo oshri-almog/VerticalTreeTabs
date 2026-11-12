@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Find a tab</title>
+  <script src="look.js"></script>
+  <link rel="stylesheet" href="switcher.css">
+  <script type="module" src="switcher.js"></script>
+</head>
+<body>
+  <label class="search">
+    <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10.9 10.1 14.4 13.6l-.8.8-3.5-3.5a5.3 5.3 0 1 1 .8-.8ZM6.7 11a4.3 4.3 0 1 0 0-8.6 4.3 4.3 0 0 0 0 8.6Z"/></svg>
+    <input id="query" type="search" placeholder="Find a tab by its title, address or group" autocomplete="off"
+      spellcheck="false" aria-label="Find a tab" aria-controls="results" role="combobox" aria-expanded="true" autofocus>
+  </label>
+  <div id="results" class="results" role="listbox" aria-label="Tabs of every window"></div>
+  <p id="none" class="none" hidden>No tab matches</p>
+  <footer class="hints" aria-hidden="true"><span>↑ ↓ choose</span><span>Enter switch to it</span><span>Esc close</span></footer>
+</body>
+</html>

@@ -20,7 +20,8 @@
 // syncGroups), and what the user does to those groups in the tab strip comes back into the trees.
 
 import {
-  buildForest, colorsReachOtherWindows, lastOfSubtree, planBlockMove, rememberColor, removeNode, resolveDrop,
+  buildForest, colorOf, colorsReachOtherWindows, lastOfSubtree, nextAfterClose, placeNear, planBlockMove, rememberColor,
+  removeNode, resolveDrop,
   storeColors, subtree, TREE_COLORS, treeColors,
 } from './tree.js';
 import {
@@ -28,8 +29,13 @@ import {
   unitColors,
 } from './groups.js';
 import {
-  addClosedWindows, goneWindows, GROUP_FIELDS, matchById, matchByUrl, matchClosedWindow, restoreNodes,
+  addClosedWindows, backByUrl, folderPlaceholders, goneWindows, GROUP_FIELDS, matchById, matchByUrl, matchClosedWindow,
+  restoreNodes,
 } from './restore.js';
+import { FOLDER_PAGE, folderUrl, isNewTabPage, newFolderId, parseFolder } from './folders.js';
+
+// The page of a folder tab (see folders.js), without its parameters.
+const folderBase = chrome.runtime.getURL(FOLDER_PAGE);
 
 const SNAPSHOT_DELAY_MS = 1000;
 // How long the colour pass reads the tabs outside the task queue while they keep changing.
@@ -103,6 +109,8 @@ chrome.runtime.onInstalled.addListener(() => run(() => {}));
 chrome.tabs.onCreated.addListener((tab) => {
   noteStrip(tab.windowId);
   born.set(tab.id, Date.now());
+  if (!tab.incognito) urls.set(tab.id, tab.pendingUrl || tab.url || ''); // (an incognito tab's address is not kept)
+  burstIn(tab);
   run(() => onCreated(tab));
 });
 chrome.windows.onCreated.addListener((win) => {
@@ -115,15 +123,21 @@ chrome.tabs.onRemoved.addListener((tabId, info) => {
   // The browser may be quitting: hold at once, before the tasks already queued run (see
   // writeTree and saveSnapshot).
   if (info.isWindowClosing) holdUntil = Date.now() + WINDOW_CLOSE_HOLD_MS;
+  // As the event comes (the next tab's activation follows it): whether it was the window's active tab, and how many
+  // activations the window had (see onRemoved). Its node is kept from init's reconcile, should this event wake the worker.
+  const active = activeIn.has(info.windowId) ? activeIn.get(info.windowId) === tabId : null;
+  closing.set(tabId, { active, activations: activationCount.get(info.windowId) ?? 0 });
   run(() => onRemoved(tabId, info));
 });
 chrome.tabs.onReplaced.addListener((addedId, removedId) => run(() => onReplaced(addedId, removedId)));
 chrome.tabs.onActivated.addListener(({ tabId, windowId }) => {
+  noteActive(windowId, tabId);
   // The worker's own switch (see activateIfHidden) can make the browser open the group of that tab only, and is no step
   // of the user's into a group.
   const own = ownActivation(tabId);
   noteStrip(windowId, own?.groupId);
   if (!own) activations.set(windowId, (activations.get(windowId) ?? 0) + 1);
+  run(() => markRead(tabId));
   run(() => reveal(tabId));
   if (!own) run(() => wentInto(tabId));
   scheduleGroups(); // the browser opens a collapsed group when a tab of it becomes the active one (see sawGroup)
@@ -137,13 +151,18 @@ chrome.tabs.onUpdated.addListener((tabId, change, tab) => {
   // once its task runs, whether it is the worker's own doing. One that is, the next group pass checks.
   if ('groupId' in change) {
     const mine = inFlight.has(tabId) || recent(touched, tabId, TOUCH_MS) || recent(born, tabId, NEW_TAB_EVENTS_MS)
-      || Date.now() < groupsHoldUntil;
+      || groupsHeld(tab.windowId);
     if (!tab.pinned && !mine) noteMove(tabId);
     else scheduleGroups();
   }
   if ('title' in change && Object.values(owned).includes(tabId)) scheduleGroups(); // its group's automatic name
   if ('pinned' in change) scheduleGroups(); // pinned, a tab leaves its group; unpinned, it goes back to its tree's
+  if ('pinned' in change) {
+    pinChanged.set(tabId, Date.now()); // the browser moves it for that: no move of the user's (see stripMoves)
+    stripMoved.delete(tabId);
+  }
   if (change.pinned === false && inFlight.has(tabId)) unpinned.add(tabId); // by the worker's own grouping: see applyGroups
+  if ('url' in change && !tab.incognito) urls.set(tabId, change.url);
   if ('url' in change || 'pinned' in change) scheduleSnapshot();
   if ('pinned' in change) {
     tabEvents++;
@@ -156,6 +175,17 @@ chrome.tabs.onMoved.addListener((tabId, { windowId }) => {
   noteStrip(windowId);
   scheduleSnapshot();
   if (moves.size) settleMoves(); // the user may be dragging still
+  // A move of the user's in the tab strip (not the extension's, nor the browser's for a pin) is followed (the setting
+  // stripMoves, read in the task), together with the moves that come with it (see followStripMoves).
+  if (!inFlight.has(tabId) && !recent(touched, tabId, TOUCH_MS) && !recent(pinChanged, tabId, 1000)) {
+    stripMoved.add(tabId);
+    clearTimeout(followTimer);
+    followTimer = setTimeout(() => run(() => followStripMoves()), FOLLOW_MOVE_MS);
+  }
+});
+chrome.webNavigation.onCommitted.addListener(({ tabId, frameId, transitionType }) => {
+  // The settings are read in the task, once init has loaded them: this event may be the one that woke the worker.
+  if (frameId === 0 && transitionType === 'auto_bookmark') run(() => fromBookmark(tabId));
 });
 chrome.tabs.onAttached.addListener((tabId, { newWindowId }) => {
   noteStrip(newWindowId);
@@ -181,6 +211,12 @@ chrome.storage.local.onChanged.addListener((changes) => {
   if (changes.settings) run(() => { settings = readSettings(changes.settings.newValue); scheduleGroups(0); });
 });
 
+// The extension's keyboard shortcuts (see "commands" in manifest.json), for the active tab where one was pressed.
+chrome.commands.onCommand.addListener((command, tab) => {
+  const events = tabEvents; // as for a request: see moveToNewWindow
+  run(() => onCommand(command, tab, events));
+});
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   const events = tabEvents; // tab events from now on are handled after this request (see moveToNewWindow)
   run(() => handle(message, events)).then(
@@ -192,12 +228,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 async function init() {
   try {
-    const [{ tree, groupLooks }, local] = await Promise.all([
-      chrome.storage.session.get(['tree', 'groupLooks']),
+    const [{ tree, groupLooks, activeTabs, closedTabs: closedBefore }, local] = await Promise.all([
+      chrome.storage.session.get(['tree', 'groupLooks', 'activeTabs', 'closedTabs']),
       chrome.storage.local.get('settings'),
     ]);
     settings = readSettings(local.settings);
+    closedTabs ??= Array.isArray(closedBefore) ? closedBefore : [];
+    // Which tab was the active one of each window, as the last worker saw it (the tab that closed and woke this one,
+    // say: see onRemoved).
+    for (const [windowId, tabId] of Object.entries(activeTabs ?? {})) {
+      storedActive.set(Number(windowId), tabId);
+      if (!activeIn.has(Number(windowId))) activeIn.set(Number(windowId), tabId);
+    }
     let tabs = await chrome.tabs.query({});
+    for (const tab of tabs) {
+      if (!urls.has(tab.id) && !tab.incognito) urls.set(tab.id, tab.url || tab.pendingUrl || '');
+      if (tab.active && !activeIn.has(tab.windowId)) activeIn.set(tab.windowId, tab.id);
+    }
     if (tree?.nodes) {
       Object.assign(nodes, tree.nodes);
       Object.assign(owned, tree.groups);
@@ -207,12 +254,18 @@ async function init() {
       // A new browser session, or this extension was just installed, updated or reloaded.
       const { snapshot } = await chrome.storage.local.get('snapshot');
       if (snapshot?.windows?.length) {
-        let mapping = matchById(snapshot, tabs);
-        if (!mapping) {
+        chrome.storage.session.set({ restoring: true }).catch(() => {}); // the panels say so meanwhile
+        let mapping = matchById(snapshot, tabs, (url) => !!parseFolder(url, folderBase));
+        if (mapping) {
+          // The extension reloaded or updated (the tabs kept their ids): its folder tabs come back (see bringBackFolders).
+          if (await bringBackFolders(snapshot, tabs, mapping)) tabs = await chrome.tabs.query({});
+        } else {
           tabs = await settledTabs(tabs);
-          mapping = matchByUrl(snapshot, windowsOf(tabs));
+          mapping = matchByUrl(snapshot, windowsOf(tabs), folderStandsIn);
+          await sendBackFolders(snapshot, windowsOf(tabs), mapping);
         }
         Object.assign(nodes, restoreNodes(snapshot, mapping));
+        for (const id of mapping.values()) fromSnapshot.add(id); // see restoreWindow
       }
     }
     reconcile(tabs);
@@ -233,8 +286,72 @@ async function init() {
     expandAboveActive(tabs);
     persist(); // this read may have failed too: the colour pass reads the tabs again
   }
+  chrome.storage.session.remove('restoring').catch(() => {});
   scheduleSnapshot();
   scheduleGroups();
+}
+
+/**
+ * When the extension reloads or updates, the browser closes its folder tabs (Chrome) or shows its New Tab page in them
+ * (Edge). The snapshot's come back: a closed one made anew where it was (after the nearest tab before it that is still
+ * there, or else before the nearest after it), and mapped to its saved id; one showing a New Tab page sent back to its
+ * page. `mapping`: saved id -> tab id (the same ids here). Returns whether it made a tab.
+ */
+async function bringBackFolders(snapshot, tabs, mapping) {
+  const byId = new Map(tabs.map((tab) => [tab.id, tab]));
+  let made = false;
+  for (const win of snapshot.windows) {
+    for (const [i, saved] of win.tabs.entries()) {
+      if (!parseFolder(saved.url, folderBase)) continue;
+      const current = byId.get(mapping.get(saved.id));
+      if (current) {
+        // (A New Tab page on its way counts: the page it is leaving may be the folder's own still.)
+        if (isNewTabPage(current.pendingUrl || current.url)) await chrome.tabs.update(current.id, { url: saved.url }).catch(() => {});
+        continue;
+      }
+      const tabOf = (entry) => byId.get(mapping.get(entry.id));
+      const before = win.tabs.slice(0, i).reverse().map(tabOf).find(Boolean);
+      const after = before ? null : win.tabs.slice(i + 1).map(tabOf).find(Boolean);
+      const near = await chrome.tabs.get((before ?? after)?.id ?? -1).catch(() => null); // where it is now
+      if (!near) continue; // its window is gone
+      const index = before ? near.index + 1 : near.index;
+      const tab = await chrome.tabs.create({ windowId: near.windowId, index, url: saved.url, active: false, pinned: !!saved.pinned })
+        .catch(() => null);
+      if (!tab) continue;
+      touch([tab.id]);
+      mapping.set(saved.id, tab.id);
+      byId.set(tab.id, tab);
+      made = true;
+      // It headed a group (`hadGroup`): the browser left that group with the rest of its tabs, and a tab made at a
+      // group's edge joins no group. It goes back in, as its first tab, if the tab saved right after it is in a group
+      // that still looks as its group did.
+      if (!saved.hadGroup) continue;
+      const nextSaved = win.tabs.slice(i + 1).map(tabOf).find(Boolean);
+      const next = nextSaved ? await chrome.tabs.get(nextSaved.id).catch(() => null) : null;
+      if (!next || next.windowId !== tab.windowId || next.groupId == null || next.groupId === -1) continue;
+      if (typeof saved.hadGroup === 'object') {
+        const group = await chrome.tabGroups.get(next.groupId).catch(() => null);
+        if (!group || group.title !== saved.hadGroup.title || group.color !== saved.hadGroup.color) continue;
+      }
+      await changing([tab.id], () => chrome.tabs.group({ groupId: next.groupId, tabIds: [tab.id] })).catch(() => {});
+    }
+  }
+  return made;
+}
+
+/** Whether a tab showing `url` may be a saved folder (`savedUrl`) that the browser brought back as a New Tab page. */
+const folderStandsIn = (savedUrl, url) => !!parseFolder(savedUrl, folderBase) && isNewTabPage(url);
+
+/**
+ * After a browser restart, or a window back (`windows`: the tabs matched, as windowsOf gives them): saved folder tabs
+ * that the browser brought back as New Tab pages go back to their pages, and get their nodes (see folderPlaceholders).
+ */
+async function sendBackFolders(snapshot, windows, mapping) {
+  const isFolder = (url) => !!parseFolder(url, folderBase);
+  for (const [savedId, tabId, url] of folderPlaceholders(snapshot, windows, mapping, isFolder, isNewTabPage)) {
+    mapping.set(savedId, tabId);
+    await chrome.tabs.update(tabId, { url }).catch(() => {});
+  }
 }
 
 /** At browser start-up tabs may still be coming back: wait until their number holds. */
@@ -252,20 +369,55 @@ async function settledTabs(tabs) {
 /**
  * A window that just came may be one that was closed, coming back: from History, by Ctrl+Shift+T, or as the browser
  * reopens its last window when it kept running in the background (Edge does, with Startup boost). The browser makes
- * such a window anew, with new tabs, all at once: once their number holds, they take the tree of the closed window they
- * are (see restoreWindow).
+ * such a window anew, with new tabs: all at once, or the window first and its tabs once it has read its saved session
+ * (into a window opened while none was left). Once their number holds (half a second, while the window has two tabs at
+ * least; one tab, it is watched for 5 s), they take the tree of the closed window they are (see restoreWindow).
+ * Meanwhile no snapshot is saved: it would take the new tabs for the closed window, which would then be lost (see
+ * saveSnapshot).
  */
 async function cameBack(windowId, since) {
-  let count = -1;
-  for (let stable = 0, waited = 0; stable < 2 && waited < 5000; waited += 250) {
-    await new Promise((resolve) => setTimeout(resolve, 250));
-    const tabs = await chrome.tabs.query({ windowId }).catch(() => null);
-    if (!tabs) return; // closed again, or the browser is quitting
-    stable = tabs.length === count ? stable + 1 : 0;
-    count = tabs.length;
+  if (watching.has(windowId)) return;
+  watching.add(windowId);
+  try {
+    let count = -1;
+    let stable = 0;
+    for (let waited = 250; ; waited += 250) {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      const tabs = await chrome.tabs.query({ windowId }).catch(() => null);
+      if (!tabs) return; // closed again, or the browser is quitting
+      stable = tabs.length === count ? stable + 1 : 0;
+      count = tabs.length;
+      if (waited >= CAME_BACK_MAX_MS || (stable >= 2 && (count >= 2 || waited >= CAME_BACK_ONE_TAB_MS))) break;
+    }
+    if (count >= 2) await run(() => restoreWindow(windowId, since)).catch(() => {}); // run() logs it
+  } finally {
+    watching.delete(windowId);
+    scheduleSnapshot(); // the one it held back, if any
   }
-  if (count >= 2) run(() => restoreWindow(windowId, since));
 }
+const watching = new Set(); // the windows cameBack watches
+
+/**
+ * A closed window can come back into a window that is open already: "Restore" in the bubble after a crash, or the
+ * browser's session read slower than cameBack waits. The browser adds such tabs in one burst: two new tabs within
+ * 300 ms, the first at the window's start (it had one tab), and cameBack watches that window as one that just came.
+ */
+const bursts = new Map(); // window id -> { n, at, first }
+function burstIn(tab) {
+  if (tab.incognito || watching.has(tab.windowId)) return;
+  const now = Date.now();
+  const burst = bursts.get(tab.windowId);
+  if (burst && now - burst.at < 300) {
+    burst.n++;
+    burst.at = now;
+    if (burst.n === 2) cameBack(tab.windowId, burst.first);
+  } else if (tab.index <= 1) bursts.set(tab.windowId, { n: 1, at: now, first: now });
+  else bursts.delete(tab.windowId);
+  if (bursts.size > 50) for (const [id, entry] of bursts) if (now - entry.at > 1000) bursts.delete(id);
+}
+// How long cameBack watches a window: with one tab, its other tabs may still come; and its tabs may keep changing.
+const CAME_BACK_ONE_TAB_MS = 5000;
+const CAME_BACK_MAX_MS = 10000;
 
 /**
  * The tabs of a window that came at `since` take the tree of the closed window they are, by URL (see matchClosedWindow):
@@ -278,24 +430,38 @@ async function restoreWindow(windowId, since) {
   const tabs = all.filter((tab) => tab.windowId === windowId).sort(byIndex);
   if (tabs.length < 2 || tabs[0].incognito) return;
   const parents = new Set(Object.values(nodes).map((node) => node.parent));
-  const fresh = tabs.filter((tab) => (born.get(tab.id) ?? 0) >= since - 2000 && nodes[tab.id]?.parent == null && !parents.has(tab.id));
+  // Not the tabs that init gave their nodes from the snapshot (at a restart every tab is new): they have theirs.
+  const fresh = tabs.filter((tab) => (born.get(tab.id) ?? 0) >= since - 2000 && nodes[tab.id]?.parent == null
+    && !parents.has(tab.id) && !fromSnapshot.has(tab.id));
   if (fresh.length < 2) return;
   const { snapshot, closedWindows = [] } = await chrome.storage.local.get(['snapshot', 'closedWindows']);
   const others = windowsOf(all.filter((tab) => tab.windowId !== windowId));
-  const candidates = [...goneWindows(snapshot?.windows, others), ...closedWindows];
-  const match = matchClosedWindow(candidates, fresh.map((tab) => ({ id: tab.id, url: tab.url || tab.pendingUrl || '' })));
+  const open = new Set(all.map((tab) => tab.windowId));
+  const kept = closedWindows.filter((win) => !open.has(win.takenBy)); // not one that came back already, still open
+  const candidates = [...goneWindows(snapshot?.windows, others), ...kept];
+  const freshTabs = fresh.map((tab) => ({ id: tab.id, url: tab.url || tab.pendingUrl || '' }));
+  const match = matchClosedWindow(candidates, freshTabs, folderStandsIn);
   if (!match) return;
   const entry = candidates[match.index];
+  await sendBackFolders({ windows: [entry] }, [{ tabs: freshTabs }], match.mapping);
   const restored = restoreNodes({ windows: [entry] }, match.mapping);
   if (!Object.values(restored).some((node) => node.parent != null)) return; // no tree among the tabs that matched
   Object.assign(nodes, restored);
-  // That window is back, and no longer kept as closed.
+  // That window is back. A kept one stays kept, taken by this window, until a snapshot has this window (saveSnapshot
+  // lets it go then): should the window close again before that, its tree is kept still.
+  // So is a kept copy of a snapshot entry (the last window, kept while the snapshot still has it): the same saved
+  // window, every tab id the same (one shared id is not enough: ids start over after a browser restart).
   const ids = new Set(entry.tabs.map((tab) => tab.id));
-  const left = closedWindows.filter((win) => !win.tabs.some((tab) => ids.has(tab.id)));
-  if (left.length !== closedWindows.length) await chrome.storage.local.set({ closedWindows: left });
+  const isIt = (win) => win === entry || (win.tabs.length === entry.tabs.length && win.tabs.every((tab) => ids.has(tab.id)));
+  if (closedWindows.some((win) => isIt(win) && win.takenBy !== windowId)) {
+    closedTaken = true;
+    await chrome.storage.local.set({
+      closedWindows: closedWindows.map((win) => (isIt(win) ? { ...win, takenBy: windowId } : win)),
+    });
+  }
   // The browser brings the window's tab groups back too, and may link them to its saved groups for a while: the trees
-  // take them back (`hadGroup`) once it is done, as after a restart.
-  groupsHoldUntil = Math.max(groupsHoldUntil, Date.now() + STARTUP_GROUPS_MS);
+  // take them back (`hadGroup`) once it is done, as after a restart. Only that window's groups wait.
+  windowHolds.set(windowId, Date.now() + STARTUP_GROUPS_MS);
   expandAboveActive(all);
   persist();
   scheduleSnapshot();
@@ -308,7 +474,7 @@ async function restoreWindow(windowId, since) {
 function reconcile(tabs) {
   const open = new Set(tabs.map((tab) => tab.id));
   for (const key of Object.keys(nodes)) {
-    if (!open.has(Number(key))) removeNode(nodes, Number(key));
+    if (!open.has(Number(key)) && !closing.has(Number(key))) removeNode(nodes, Number(key)); // see onRemoved
   }
   for (const tab of tabs) nodes[tab.id] ??= { parent: null, collapsed: false };
 }
@@ -316,17 +482,36 @@ function reconcile(tabs) {
 function onCreated(tab) {
   if (nodes[tab.id]) return; // already placed by a restore, a duplicate or "new child"
   nodes[tab.id] = { parent: null, collapsed: false };
+  // Opened in the background: unread until it becomes the active tab (see markRead and the setting unread).
+  // (Not one the browser brings back from its session: it comes with its page's title already.)
+  const restoredTab = !!tab.title && tab.title !== (tab.pendingUrl || tab.url);
+  if (!tab.active && !tab.pinned && !restoredTab && !parseFolder(tab.pendingUrl || tab.url, folderBase)) nodes[tab.id].unread = true;
+  createdAs.set(tab.id, tab.pendingUrl || tab.url || '');
+  if (createdAs.size > 200) createdAs.delete(createdAs.keys().next().value);
   const source = sources.get(tab.id);
   sources.delete(tab.id);
   scheduleSnapshot();
   // A new top-level tab changes no tree colour. Settling them anyway would hold up the tab's
   // placement under the page that opened it, which usually comes right after this.
   if (source != null) return openedFrom(tab.id, source);
+  if (!tab.pinned) {
+    const url = tab.pendingUrl || tab.url || '';
+    // A New Tab page (Ctrl+T, the tab strip's +): where the setting newTabPlacement says, by the active tab, which the
+    // browser gives as its opener.
+    // Not one of a window that is coming back (see cameBack), nor one the browser put into a group or beside a tab
+    // itself ("New tab in group", "New tab to the right"): those it opens at the strip's end only, with no opener.
+    if (isNewTabPage(url) && settings.newTabPlacement !== 'browser' && !watching.has(tab.windowId) && (tab.groupId ?? -1) === -1) {
+      const ref = tab.openerTabId ?? previousActiveTab(tab.windowId, tab.id);
+      return placeNewTab(tab, settings.newTabPlacement, ref, { atEndOnly: tab.openerTabId == null });
+    }
+    // A closed tab reopened (Ctrl+Shift+T, History): back under the tab it was under.
+    if (reopened(tab)) return undefined;
+  }
   writeTree();
 }
 
 /** A page opened this tab by a link; its onCreated may come before or after this. */
-function openedFrom(tabId, sourceTabId) {
+async function openedFrom(tabId, sourceTabId) {
   if (sourceTabId == null || sourceTabId === tabId) return;
   const node = nodes[tabId];
   if (!node) {
@@ -338,17 +523,277 @@ function openedFrom(tabId, sourceTabId) {
   if (nodes[sourceTabId]?.collapsed) nodes[sourceTabId].collapsed = false;
   persist();
   scheduleSnapshot();
+  // First or last among its page's tabs, as the setting linkPlacement says (the browser puts it right after the page,
+  // or after the tabs opened from it before).
+  if (settings.linkPlacement !== 'browser') await placeLink(tabId, sourceTabId);
   // Opened in the foreground, it may have been activated before its parent was known: a collapsed tab
   // above the page that opened it (or above a pinned page's place in the tree) can hide it.
   return reveal(tabId);
 }
 
-function onRemoved(tabId, { isWindowClosing }) {
+async function onRemoved(tabId, info) {
+  try {
+    await closed(tabId, info, closing.get(tabId) ?? { active: null, activations: activationCount.get(info.windowId) ?? 0 });
+  } finally {
+    closing.delete(tabId);
+  }
+}
+
+/** Tab `tabId` closed; `event`: as its event came (see the onRemoved listener). */
+async function closed(tabId, { isWindowClosing, windowId }, event) {
   sources.delete(tabId);
-  removeNode(nodes, tabId);
+  // Its URL, from its events, or (the worker was asleep) the snapshot.
+  const closedUrl = urls.get(tabId) ?? (isWindowClosing ? null : (await chrome.storage.local.get('snapshot')).snapshot?.windows
+    ?.flatMap((w) => w.tabs).find((t) => t.id === tabId)?.url);
+  urls.delete(tabId);
+  // The settings closeParent and afterClose ask about its window as it is now, before its node goes.
+  let promote = null;
+  let next = null;
+  if (!isWindowClosing && nodes[tabId] && (settings.closeParent === 'promote' || settings.afterClose === 'tree')) {
+    const tabs = (await chrome.tabs.query({ windowId }).catch(() => [])).filter((t) => !t.pinned).sort(byIndex);
+    if (settings.closeParent === 'promote') promote = tabs.find((t) => nodes[t.id]?.parent === tabId)?.id ?? null;
+    // It was the active tab: so the event said, or (the event woke the worker) the last worker had it.
+    if (settings.afterClose === 'tree' && (event.active ?? storedActive.get(windowId) === tabId)) {
+      const before = await orderBefore(windowId, tabId, tabs);
+      // A pinned tab is in no tree: the browser's pick stands.
+      if (!before.pinned) next = nextAfterClose(before.order, tabId, nodes, new Set(tabs.map((t) => t.id)));
+    }
+  }
+  if (!isWindowClosing && nodes[tabId]) keepClosed(tabId, windowId, closedUrl);
+  removeNode(nodes, tabId, promote);
   persist();
   if (isWindowClosing) holdSnapshot();
   else scheduleSnapshot();
+  // The tab the tree gives, unless the user made another tab the active one since the browser's own pick.
+  if (next != null && (activationCount.get(windowId) ?? 0) - event.activations <= 1) {
+    // The worker's own switch (see ownActivation).
+    const now = Date.now();
+    ownActivations.set(next, { groupId: (await chrome.tabs.get(next).catch(() => null))?.groupId ?? -1, at: now });
+    await chrome.tabs.update(next, { active: true }).catch(() => {});
+  }
+  // A first child that took a closed tab's place, with the others under it: the active tab shows still.
+  if (promote != null) await revealActive(windowId);
+}
+
+// ---- where new tabs go, and the tabs that close (the settings) ---------------------------------
+
+const urls = new Map(); // tab id -> its URL, as its events tell (for the tabs that close: see keepClosed)
+const activeIn = new Map(); // window id -> its active tab
+const previousActive = new Map(); // window id -> { tabId, at }: the tab that was the active one before, and until when
+const closing = new Map(); // tab id -> { active, activations } as its onRemoved event came (see onRemoved)
+const storedActive = new Map(); // window id -> its active tab, as the last worker kept it (see init)
+const activationCount = new Map(); // window id -> how many times its active tab changed (see onRemoved)
+const stripMoved = new Set(); // tabs the user moved in the tab strip, to follow (see followStripMoves)
+let followTimer = null;
+const pinChanged = new Map(); // tab id -> when it was pinned or unpinned (the browser moves it for that)
+const createdAs = new Map(); // tab id -> the URL it was made with (a New Tab page that a bookmark fills is no new tab)
+const bookmarkBursts = new Map(); // window id -> { at, ref, placed, activated } (see fromBookmark)
+const FOLLOW_MOVE_MS = 400;
+// A tab that closes is kept this long (and the last CLOSED_KEPT of them), for when it is reopened (see reopened).
+const CLOSED_KEPT_MS = 30 * 60 * 1000;
+const CLOSED_KEPT = 30;
+let closedTabs = null; // [{ url, parent, collapsed, windowId, at }], the newest first; read from storage.session first
+
+/** A tab that became the active one has been looked at: no longer unread. */
+function markRead(tabId) {
+  if (!nodes[tabId]?.unread) return;
+  delete nodes[tabId].unread;
+  persist();
+  scheduleSnapshot();
+}
+
+/** Tab `tabId` became the active tab of window `windowId`: which was before it, and when that changed. */
+function noteActive(windowId, tabId) {
+  const was = activeIn.get(windowId);
+  if (was === tabId) return;
+  previousActive.set(windowId, { tabId: was, at: Date.now() });
+  activeIn.set(windowId, tabId);
+  activationCount.set(windowId, (activationCount.get(windowId) ?? 0) + 1);
+  // Kept for the next worker, once this one has read what the last one kept (see init).
+  run(() => chrome.storage.session.set({ activeTabs: Object.fromEntries(activeIn) }).catch(() => {}));
+}
+
+
+/** The tab that was the active one of window `windowId` before tab `newId` (which may be it now), or null. */
+function previousActiveTab(windowId, newId) {
+  const now = activeIn.get(windowId);
+  return now != null && now !== newId ? now : previousActive.get(windowId)?.tabId ?? null;
+}
+
+/**
+ * The window's tab ids in strip order with `closed` back where it was: the tabs open now (`tabs`, in order), it after
+ * the last of them that came before it in the last snapshot; and whether it was pinned then.
+ */
+async function orderBefore(windowId, closed, tabs) {
+  const saved = lastSaved ?? (await chrome.storage.local.get('snapshot')).snapshot?.windows ?? [];
+  const win = saved.find((w) => w.tabs.some((t) => t.id === closed));
+  const live = tabs.map((t) => t.id);
+  if (!win) return { order: live, pinned: false };
+  const at = win.tabs.findIndex((t) => t.id === closed);
+  const before = win.tabs.slice(0, at).map((t) => t.id).reverse().find((id) => live.includes(id));
+  const index = before == null ? 0 : live.indexOf(before) + 1;
+  return { order: [...live.slice(0, index), closed, ...live.slice(index)], pinned: !!win.tabs[at].pinned };
+}
+
+/** A new tab `tab` goes where `where` says by tab `refId` (see placeNear), and is moved there. */
+async function placeNewTab(tab, where, refId, { atEndOnly = false } = {}) {
+  const tabs = await chrome.tabs.query({ windowId: tab.windowId });
+  const ref = tabs.find((t) => t.id === refId && !t.pinned);
+  const self = tabs.find((t) => t.id === tab.id);
+  const atEnd = !!self && self.index === Math.max(...tabs.map((t) => t.index));
+  const place = ref && self && (!atEndOnly || atEnd) ? placeNear(buildForest(tabs, nodes), ref.id, where, new Set([tab.id])) : null;
+  if (!place || !nodes[tab.id]) {
+    writeTree();
+    return;
+  }
+  nodes[tab.id].parent = place.parent;
+  // Under a collapsed tab it would be hidden: shown instead, as a link's tab is (see openedFrom).
+  if (place.parent != null && nodes[place.parent]?.collapsed) nodes[place.parent].collapsed = false;
+  persist();
+  scheduleSnapshot();
+  await arrange(tab.windowId, [tab.id], { after: place.after });
+}
+
+/** A tab opened from a link goes first or last among the tabs of its page (the setting linkPlacement). */
+async function placeLink(tabId, sourceTabId) {
+  const tab = await chrome.tabs.get(tabId).catch(() => null);
+  if (!tab || tab.pinned) return;
+  const tabs = await chrome.tabs.query({ windowId: tab.windowId });
+  const source = tabs.find((t) => t.id === sourceTabId);
+  if (!source || source.pinned) return;
+  const after = settings.linkPlacement === 'first' ? sourceTabId : lastOfSubtree(buildForest(tabs, nodes), sourceTabId, new Set([tabId]));
+  await arrange(tab.windowId, [tabId], { after });
+}
+
+/** A tab opened from a bookmark (a new tab only): where the setting bookmarkPlacement says, and made active if asked. */
+async function fromBookmark(tabId) {
+  if (settings.bookmarkPlacement === 'browser' && settings.bookmarkActive === 'no') return;
+  // A new tab only: not a New Tab page that a bookmark then filled.
+  if (!recent(born, tabId, 10000) || nodes[tabId]?.parent != null || isNewTabPage(createdAs.get(tabId))) return;
+  const tab = await chrome.tabs.get(tabId).catch(() => null);
+  if (!tab || tab.pinned) return;
+  // The tabs of one "Open all" come within moments of each other: one burst, placed by the tab that was the active one
+  // as it began, each after the one made before it (tab ids grow as tabs are made), whatever order their pages load in.
+  const now = Date.now();
+  let burst = bookmarkBursts.get(tab.windowId);
+  if (!burst || now - burst.at > 1500) {
+    burst = { at: now, ref: previousActiveTab(tab.windowId, tab.id), placed: [], activated: false };
+    bookmarkBursts.set(tab.windowId, burst);
+  }
+  burst.at = now;
+  if (settings.bookmarkPlacement !== 'browser') {
+    const prior = burst.placed.filter((id) => id < tabId && nodes[id]).sort((a, b) => b - a)[0];
+    await placeNewTab(tab, prior != null ? 'sibling' : settings.bookmarkPlacement, prior ?? burst.ref);
+    burst.placed.push(tabId);
+  }
+  if (settings.bookmarkActive === 'yes' && !tab.active && !burst.activated) {
+    burst.activated = true;
+    await chrome.tabs.update(tabId, { active: true }).catch(() => {});
+  }
+}
+
+/** Keep a tab that closes for a while, by its URL, for when it is reopened (see reopened). */
+function keepClosed(tabId, windowId, url) {
+  const node = nodes[tabId];
+  if (!url || !node || isNewTabPage(url)) return;
+  closedTabs = [{ url, parent: node.parent ?? null, collapsed: !!node.collapsed, windowId, at: Date.now() },
+    ...(closedTabs ?? [])].slice(0, CLOSED_KEPT);
+  chrome.storage.session.set({ closedTabs }).catch(() => {});
+}
+
+/**
+ * A new tab that is a closed one reopened: the browser brings it back with its page's title and URL at once (a new
+ * tab gets its title later). It goes back under the tab it was under, if that is still in its window, and is collapsed
+ * again if it was. Returns whether it was one.
+ */
+function reopened(tab) {
+  const url = tab.pendingUrl || tab.url;
+  if (!url || !tab.title || tab.title === url || !closedTabs?.length) return false;
+  const now = Date.now();
+  const i = closedTabs.findIndex((entry) => entry.url === url && entry.windowId === tab.windowId && now - entry.at < CLOSED_KEPT_MS);
+  if (i < 0) return false;
+  const [entry] = closedTabs.splice(i, 1);
+  chrome.storage.session.set({ closedTabs }).catch(() => {});
+  if (entry.parent == null || !nodes[entry.parent]) return false;
+  nodes[tab.id].parent = entry.parent;
+  nodes[tab.id].collapsed = entry.collapsed;
+  persist();
+  return true;
+}
+
+/**
+ * The tabs the user moved in the tab strip (the setting stripMoves 'follow'): each run of them next to each other moves
+ * as one block, its links inside kept; the block's top tabs take the place of the first tab after the block that is not
+ * one of their own, and their tabs left behind stay where they were (see leaveTree). Not a run dropped back where it
+ * was, nor a tab group dragged by its header, nor a tab whose group changed with the move (userMoves places it).
+ */
+async function followStripMoves() {
+  const moved = [...stripMoved];
+  stripMoved.clear();
+  if (settings.stripMoves !== 'follow' || !moved.length) return;
+  const tabs = await chrome.tabs.query({});
+  const byId = new Map(tabs.map((t) => [t.id, t]));
+  const ids = moved.filter((id) => byId.has(id) && !byId.get(id).pinned && nodes[id] && !moves.has(id) && !userMoved.has(id));
+  const saved = lastSaved ?? [];
+  let changed = false;
+  for (const windowId of new Set(ids.map((id) => byId.get(id).windowId))) {
+    const here = tabs.filter((t) => t.windowId === windowId);
+    const order = here.filter((t) => !t.pinned).sort(byIndex).map((t) => t.id);
+    const movedHere = new Set(ids.filter((id) => byId.get(id).windowId === windowId));
+    const groupIds = new Set([...movedHere].map((id) => byId.get(id).groupId));
+    if (groupIds.size === 1 && !groupIds.has(-1)) {
+      const [group] = groupIds;
+      if (here.filter((t) => t.groupId === group).every((t) => movedHere.has(t.id))) continue; // the group dragged whole
+    }
+    const runs = [];
+    let current = null;
+    for (const id of order) {
+      if (!movedHere.has(id)) current = null;
+      else if (current) current.push(id);
+      else runs.push((current = [id]));
+    }
+    const savedOrder = saved.find((w) => w.tabs.some((t) => movedHere.has(t.id)))?.tabs.map((t) => t.id)
+      .filter((id) => order.includes(id) || movedHere.has(id)) ?? null;
+    for (const block of runs) {
+      const inBlock = new Set(block);
+      const near = (list) => {
+        const first = list.indexOf(block[0]);
+        const last = list.indexOf(block.at(-1));
+        return [list.slice(0, first).reverse().find((id) => !inBlock.has(id)), list.slice(last + 1).find((id) => !inBlock.has(id))];
+      };
+      if (savedOrder?.includes(block[0])) {
+        const [before, after] = near(order);
+        const [savedBefore, savedAfter] = near(savedOrder);
+        if (before === savedBefore && after === savedAfter) continue; // dropped back where it was
+      }
+      const forest = buildForest(here, nodes);
+      for (const top of block.filter((id) => !inBlock.has(forest.parentOf.get(id)))) {
+        const own = new Set(subtree(forest, top));
+        const next = order.slice(order.indexOf(block.at(-1)) + 1).find((id) => !own.has(id));
+        leaveTree(nodes, top, inBlock);
+        nodes[top].parent = next != null ? buildForest(here, nodes).parentOf.get(next) ?? null : null;
+        changed = true;
+      }
+    }
+  }
+  if (changed) {
+    persist();
+    scheduleSnapshot();
+  }
+}
+
+/** A new tab placed by `where` (see placeNear) by tab `refId`, or the window's active tab; at the end with 'end'. */
+async function newTabAt(windowId, where, refId = null) {
+  const tabs = await chrome.tabs.query({ windowId });
+  const ref = tabs.find((t) => (refId == null ? t.active : t.id === refId) && !t.pinned);
+  const place = where === 'end' || !ref ? null : placeNear(buildForest(tabs, nodes), ref.id, where);
+  const index = place ? tabs.find((t) => t.id === place.after).index + 1 : undefined;
+  const tab = await chrome.tabs.create({ windowId, active: true, ...(index == null ? {} : { index }) });
+  touch([tab.id]);
+  nodes[tab.id] = { parent: place?.parent ?? null, collapsed: false };
+  persist();
+  scheduleSnapshot(); // its onCreated finds the node made already
+  return tab.id;
 }
 
 /**
@@ -437,7 +882,11 @@ async function handle(message, events) {
     case 'ping': return null;
     case 'setCollapsed': return setCollapsed(message.tabId, message.collapsed);
     case 'setAllCollapsed': return setAllCollapsed(message.windowId, message.collapsed);
-    case 'move': return moveTree(message.tabId, message.windowId, message.targetId ?? null, message.position);
+    case 'move': return message.alone
+      ? moveAlone(message.tabId, message.windowId, message.targetId ?? null, message.position)
+      : moveTree(message.tabId, message.windowId, message.targetId ?? null, message.position);
+    case 'moveTabs': return moveTabs(message.tabIds ?? [], message.windowId, message.targetId ?? null, message.position);
+    case 'moveTabsToNewWindow': return moveTabsToNewWindow(message.tabIds ?? [], events);
     case 'makeTopLevel': return makeTopLevel(message.tabId);
     case 'closeTree': return closeTree(message.tabId, true);
     case 'closeChildren': return closeTree(message.tabId, false);
@@ -448,8 +897,77 @@ async function handle(message, events) {
     case 'setGroupName': return setGroupName(message.tabId, message.name);
     case 'setGroupColor': return setGroupColor(message.tabId, message.color);
     case 'setNoGroup': return setNoGroup(message.tabId, message.noGroup);
+    case 'openSwitcher': return openSwitcher(message.windowId);
+    case 'closeTabs': return closeTabs(message.tabIds ?? []);
+    case 'command': return onCommand(message.command, await chrome.tabs.get(message.tabId), events);
+    case 'newFolder': return newFolder(message);
+    case 'moveToNewFolder': return moveToNewFolder(message.tabIds ?? []);
+    case 'moveToFolder': return moveToFolder(message.tabIds ?? [], message.folderId);
+    case 'renameFolder': return updateFolder(message.tabId, { name: message.name });
+    case 'setFolderIcon': return updateFolder(message.tabId, { icon: message.icon });
+    case 'newTabIn': return newTabIn(message.tabId, !!message.first);
+    case 'newTabAt': return newTabAt(message.windowId, message.where ?? 'end', message.tabId ?? null);
+    case 'moveGroupToNewWindow': return moveGroupToNewWindow(message.groupId);
     default: throw new Error(`unknown message: ${message.type}`);
   }
+}
+
+// ---- keyboard shortcuts and the quick switcher -------------------------------------------
+
+/**
+ * One of the extension's keyboard shortcuts (see "commands" in manifest.json; the user sets the keys at
+ * chrome://extensions/shortcuts), for `tab`, the active tab of the window where it was pressed. `events`: as for
+ * moveToNewWindow.
+ */
+async function onCommand(command, tab, events) {
+  tab ??= (await chrome.tabs.query({ active: true, lastFocusedWindow: true }))[0];
+  if (command === 'find-tab') return openSwitcher(tab?.windowId);
+  if (!tab) return;
+  if (command === 'collapse-all' || command === 'expand-all') return setAllCollapsed(tab.windowId, command === 'collapse-all');
+  if (tab.pinned || !nodes[tab.id]) return; // a pinned tab is in no tree
+  switch (command) {
+    case 'toggle-tree': {
+      // The tree the tab is in, by its top tab.
+      const forest = await forestOf(tab.windowId);
+      let top = tab.id;
+      while (forest.parentOf.get(top) != null) top = forest.parentOf.get(top);
+      if (forest.children.has(top)) await setCollapsed(top, !nodes[top]?.collapsed);
+      return;
+    }
+    case 'new-child': return newChild(tab.id);
+    case 'top-level': return makeTopLevel(tab.id);
+    case 'new-window': return moveToNewWindow(tab.id, events);
+    case 'close-tree': return closeTree(tab.id, true);
+    case 'new-sibling': return newTabAt(tab.windowId, 'sibling', tab.id);
+    case 'duplicate': return duplicate(tab.id);
+    case 'new-folder': {
+      // The tabs selected in the tab strip, if the tab is one of them; else the tab.
+      const selected = (await chrome.tabs.query({ windowId: tab.windowId, highlighted: true })).map((t) => t.id);
+      return moveToNewFolder(selected.includes(tab.id) ? selected : [tab.id]);
+    }
+    default: return undefined;
+  }
+}
+
+/**
+ * The quick switcher (switcher.html), to find a tab in any window by its title, address or tab group: a small window
+ * over window `windowId`, whose tabs it lists first. One at a time: asked for again, the open one comes forward.
+ */
+async function openSwitcher(windowId) {
+  const url = chrome.runtime.getURL('switcher.html');
+  const open = (await chrome.tabs.query({})).find((tab) => (tab.url || tab.pendingUrl || '').startsWith(url));
+  if (open) {
+    await chrome.windows.update(open.windowId, { focused: true });
+    return;
+  }
+  const host = windowId == null ? null : await chrome.windows.get(windowId).catch(() => null);
+  const width = 560;
+  const height = 520;
+  const place = host?.width ? {
+    left: Math.round(host.left + (host.width - width) / 2),
+    top: Math.round(host.top + Math.max(48, (host.height - height) / 3)),
+  } : {};
+  await chrome.windows.create({ url: `${url}?windowId=${host?.id ?? ''}`, type: 'popup', width, height, focused: true, ...place });
 }
 
 const byIndex = (a, b) => a.index - b.index;
@@ -670,6 +1188,22 @@ async function closeTree(tabId, includeSelf) {
   const tabs = await chrome.tabs.query({ windowId: tab.windowId });
   const ids = subtree(buildForest(tabs, nodes), tabId);
   if (!includeSelf) ids.shift();
+  return closeTabs(ids, tabs);
+}
+
+/**
+ * Close the tabs `ids`, of one window (those that are still there); `tabs`: that window's tabs, if read already. (The
+ * panel's "Close group" too: the tabs of the group of a unit.)
+ */
+async function closeTabs(ids, tabs = null) {
+  if (!tabs) {
+    const open = (await chrome.tabs.query({})).filter((t) => ids.includes(t.id));
+    const first = ids.map((id) => open.find((t) => t.id === id)).find(Boolean);
+    if (!first) return;
+    tabs = await chrome.tabs.query({ windowId: first.windowId });
+  }
+  const here = new Set(tabs.map((t) => t.id));
+  ids = ids.filter((id) => here.has(id));
   if (!ids.length) return;
   // Closing every tab of a window closes it, and the browser keeps the tab groups of a closing window in its list of
   // saved groups. Ungrouped first, a group the worker made goes with its tabs, as when a tree ends in a window that
@@ -705,6 +1239,174 @@ async function duplicate(tabId) {
   if (tab.pinned) return;
   const forest = await forestOf(tab.windowId);
   await arrange(tab.windowId, [copy.id], { after: lastOfSubtree(forest, tabId, new Set([copy.id])) });
+}
+
+// ---- folders (see folders.js) ------------------------------------------------------------
+
+/**
+ * A folder tab at `index` of window `windowId`, under `parent`, not the active tab unless `active`. `heir`: the colour
+ * its tree is to keep (that of a tree it takes the place of).
+ */
+async function createFolder(windowId, index, parent, { active = false, heir = null } = {}) {
+  // An extension's page cannot show in an incognito window ("spanning" mode): the browser would put it in a normal one.
+  if ((await chrome.windows.get(windowId).catch(() => null))?.incognito !== false) return null;
+  const url = folderUrl(folderBase, { id: newFolderId() });
+  const tab = await chrome.tabs.create({ windowId, url, active, ...(index == null ? {} : { index }) });
+  touch([tab.id]);
+  nodes[tab.id] = { parent, collapsed: false, ...(heir ? { heir } : {}) };
+  persist();
+  scheduleSnapshot(); // its onCreated finds the node made already
+  return tab;
+}
+
+/**
+ * "New folder": after the tree of tab `tabId` (`inside`: as its first child), or with no tab, at the end of window
+ * `windowId`. It becomes the active tab, its page ready for a name.
+ */
+async function newFolder({ tabId = null, windowId = null, inside = false }) {
+  const tab = tabId == null ? null : await chrome.tabs.get(tabId);
+  if (!tab || tab.pinned) {
+    const target = tab?.windowId ?? windowId;
+    return (await createFolder(target, null, null, { active: true }))?.id ?? null;
+  }
+  const tabs = await chrome.tabs.query({ windowId: tab.windowId });
+  if (inside) return (await createFolder(tab.windowId, tab.index + 1, tab.id, { active: true }))?.id ?? null;
+  const last = lastOfSubtree(buildForest(tabs, nodes), tab.id);
+  const index = tabs.find((t) => t.id === last).index + 1;
+  return (await createFolder(tab.windowId, index, nodes[tab.id]?.parent ?? null, { active: true }))?.id ?? null;
+}
+
+/** Of `tabIds` (one window's), the unpinned ones whose subtrees hold the others, in strip order, with that window's tabs. */
+async function topsOf(tabIds) {
+  const found = (await Promise.all(tabIds.map((id) => chrome.tabs.get(id).catch(() => null)))).filter((t) => t && !t.pinned);
+  if (!found.length) return null;
+  const { windowId } = found[0];
+  const tabs = await chrome.tabs.query({ windowId });
+  const forest = buildForest(tabs, nodes);
+  const chosen = new Set(found.filter((t) => t.windowId === windowId).map((t) => t.id));
+  const tops = tabs.filter((t) => chosen.has(t.id)).sort(byIndex).filter((t) => {
+    for (let at = forest.parentOf.get(t.id); at != null; at = forest.parentOf.get(at)) if (chosen.has(at)) return false;
+    return true;
+  });
+  return { windowId, tabs, forest, tops };
+}
+
+/**
+ * "Move to new folder": a folder where the first of the tabs `tabIds` is (under its parent), and the tabs in it with
+ * their subtrees, in their order. A tree it takes the place of keeps its colour. Returns the folder's tab id.
+ */
+async function moveToNewFolder(tabIds) {
+  const found = await topsOf(tabIds);
+  if (!found?.tops.length) return null;
+  const { windowId, tops } = found;
+  const [first] = tops;
+  const parent = nodes[first.id]?.parent ?? null;
+  const heir = found.forest.parentOf.get(first.id) == null ? colorOf(nodes[first.id]) : null;
+  const folder = await createFolder(windowId, first.index, parent, { heir });
+  if (!folder) return null; // an incognito window
+  for (const tab of tops) await moveTree(tab.id, windowId, folder.id, 'lastChild');
+  return folder.id;
+}
+
+/**
+ * A drag of a tab alone (Ctrl held as it started): its children stay, moving up into its place (see leaveTree), and the
+ * tab goes to the drop's place, as moveTree takes a tree there.
+ */
+async function moveAlone(tabId, windowId, targetId, position) {
+  const tab = await chrome.tabs.get(tabId);
+  if (tab.pinned || !nodes[tabId]) return false;
+  leaveTree(nodes, tabId);
+  persist();
+  return moveTree(tabId, windowId, targetId, position);
+}
+
+/**
+ * Several tabs (the ones selected in the panel) with their subtrees, in their order, to the drop's place (as moveTree):
+ * the first where the drop says, each next one after the one before it, or as the drop says when that keeps them in
+ * order (before a tab, a last child, the end).
+ */
+async function moveTabs(tabIds, windowId, targetId, position) {
+  const found = await topsOf(tabIds);
+  if (!found) return false;
+  let moved = false;
+  let previous = null;
+  for (const tab of found.tops) {
+    const after = previous != null && position !== 'end';
+    if (await moveTree(tab.id, windowId, after ? previous : targetId, after ? 'afterTree' : position)) {
+      moved = true;
+      previous = tab.id;
+    }
+  }
+  return moved;
+}
+
+/**
+ * A tab group of the user's own, whole, to a new window (its menu in the panel): the browser moves the group there, and
+ * the new window's own New Tab page goes.
+ */
+async function moveGroupToNewWindow(groupId) {
+  const group = await chrome.tabGroups.get(groupId);
+  const source = await chrome.windows.get(group.windowId);
+  const win = await chrome.windows.create({ focused: true, incognito: source.incognito });
+  const blank = (await chrome.tabs.query({ windowId: win.id })).map((t) => t.id);
+  try {
+    await chrome.tabGroups.move(groupId, { windowId: win.id, index: -1 });
+  } catch (error) {
+    await chrome.windows.remove(win.id).catch(() => {});
+    throw error;
+  }
+  if (blank.length) await chrome.tabs.remove(blank).catch(() => {});
+}
+
+/** "Move to new window" for several tabs: the first's tree makes the window (see moveToNewWindow), the others follow. */
+async function moveTabsToNewWindow(tabIds, events) {
+  const found = await topsOf(tabIds);
+  if (!found?.tops.length) return;
+  const [first, ...rest] = found.tops;
+  await moveToNewWindow(first.id, events);
+  const { windowId } = await chrome.tabs.get(first.id);
+  if (windowId === found.windowId) return; // no window was made
+  for (const tab of rest) await moveTree(tab.id, windowId, null, 'end');
+}
+
+/** "Move to folder": the tabs `tabIds`, with their subtrees, at the end of folder `folderId` (in any window). */
+async function moveToFolder(tabIds, folderId) {
+  const folder = await chrome.tabs.get(folderId);
+  if (!parseFolder(folder.url || folder.pendingUrl, folderBase)) return false;
+  const found = await topsOf(tabIds);
+  if (!found) return false;
+  let moved = false;
+  for (const tab of found.tops) {
+    if (tab.id !== folderId && await moveTree(tab.id, folder.windowId, folderId, 'lastChild')) moved = true;
+  }
+  return moved;
+}
+
+/** A folder's new name or icon (`changes`): its page shows it, from its URL. */
+async function updateFolder(tabId, changes) {
+  const tab = await chrome.tabs.get(tabId);
+  // From the newest of its folder URLs: one it is going to (a rename sent a moment ago) comes first.
+  const now = [tab.pendingUrl, tab.url].find((url) => parseFolder(url, folderBase));
+  const folder = parseFolder(now, folderBase);
+  if (!folder) return;
+  const url = folderUrl(folderBase, { ...folder, ...changes });
+  if (url === now) return;
+  // A loaded page keeps the change in its own history entry (replaceState), as its own field does: a rename is no step
+  // for Back. Only a tab with no page to answer (discarded, still loading) is sent to the new URL.
+  const kept = await chrome.runtime.sendMessage({ type: 'folderChanged', tabId, changes }).catch(() => false);
+  if (kept !== true) await chrome.tabs.update(tabId, { url });
+}
+
+/** A new tab in tab `tabId` (a folder's "+"): its last child, or with `first` its first. */
+async function newTabIn(tabId, first) {
+  const tab = await chrome.tabs.get(tabId);
+  if (tab.pinned) return; // a pinned tab heads no tree (see buildForest)
+  if (!first) return newChild(tabId);
+  const child = await chrome.tabs.create({ windowId: tab.windowId, openerTabId: tabId, index: tab.index + 1, active: true });
+  touch([child.id]);
+  nodes[child.id] = { parent: tabId, collapsed: false };
+  persist();
+  scheduleSnapshot(); // as in newChild
 }
 
 /** `events`: the tab events counted when the request came in. */
@@ -860,6 +1562,11 @@ const owned = {};
 // go of as they are, the user's again. Kept with the nodes.
 const adopted = new Set();
 let groupsHoldUntil = 0; // see STARTUP_GROUPS_MS
+const windowHolds = new Map(); // window id -> until when the group pass leaves its groups alone (see restoreWindow)
+/** Whether the group pass leaves the groups of window `windowId` alone for now (see STARTUP_GROUPS_MS). */
+const groupsHeld = (windowId, now = Date.now()) => now < groupsHoldUntil || now < (windowHolds.get(windowId) ?? 0);
+// The tabs that init gave their nodes from the snapshot (see restoreWindow).
+const fromSnapshot = new Set();
 let groupsQueued = false;
 let syncing = false; // a group pass is running: a change meanwhile asks for another (groupsAgain)
 let groupsAgain = false;
@@ -1018,6 +1725,9 @@ function sawGroup(group, at = Date.now()) {
   const now = lookOf(group);
   looks.set(group.id, now);
   writeLooks();
+  // The snapshot keeps the name and colour of the worker's groups (hadGroup), which a reload checks a group by (see
+  // bringBackFolders and planGroups): a change to them is saved, though no tree changed with it.
+  if (owned[group.id] != null && (before?.title !== now.title || before?.color !== now.color)) scheduleSnapshot();
   if (!before || owned[group.id] == null) return;
   const theirs = LOOK.filter((key) => before[key] !== now[key] && !own.has(key));
   const opened = theirs.includes('collapsed') && !now.collapsed;
@@ -1087,8 +1797,12 @@ async function syncGroups() {
   for (const [id, at] of userMoved) if (Date.now() - at > MOVES_STALE_MS) userMoved.delete(id);
   if (userMoved.size) return;
   // Just after a fresh start the pass keeps its books (which groups are the worker's) but changes nothing in the
-  // browser, which may still be linking its restored groups to its saved ones (see STARTUP_GROUPS_MS).
-  const holding = Date.now() < groupsHoldUntil;
+  // browser, which may still be linking its restored groups to its saved ones (see STARTUP_GROUPS_MS); nor in a window
+  // that came back (see restoreWindow).
+  const now = Date.now();
+  for (const [id, until] of windowHolds) if (now >= until) windowHolds.delete(id);
+  const holding = now < groupsHoldUntil;
+  const holdsUntil = Math.max(groupsHoldUntil, ...windowHolds.values());
   syncing = true;
   try {
     // Normal windows' tabs only: those are the ones with groups (and a read of every window's is the colour pass's).
@@ -1124,7 +1838,8 @@ async function syncGroups() {
     writeLooks();
     for (const win of windows) {
       const list = tabs.filter((tab) => tab.windowId === win.id);
-      if (!holding && joinNewTabs(list)) {
+      const held = holding || windowHolds.has(win.id);
+      if (!held && joinNewTabs(list)) {
         expandAboveActive(list); // a tab that joined a collapsed tree can be the active one
         changed = true;
       }
@@ -1137,17 +1852,17 @@ async function syncGroups() {
         tabs: list, groups: groups.filter((group) => group.windowId === win.id), forest, units, colors, nodes, owned,
         adopted, policy: settings.ownGroups, mode: settings.groups,
       });
-      const done = await applyGroups(ops, win.id, list, holding);
+      const done = await applyGroups(ops, win.id, list, held);
       if (done.changed) changed = true;
       if (done.failed) failed = true;
     }
-    for (const node of failed || holding ? [] : Object.values(nodes)) {
+    for (const node of failed || holding || windowHolds.size ? [] : Object.values(nodes)) {
       if (!node.hadGroup && !node.groupAdopted) continue;
       delete node.hadGroup; // every window has had its chance to take back its groups
       delete node.groupAdopted;
       changed = true;
     }
-    if (holding) setTimeout(() => scheduleGroups(0), groupsHoldUntil - Date.now());
+    if (holdsUntil > Date.now()) setTimeout(() => scheduleGroups(0), holdsUntil - Date.now());
     if (changed) {
       ownWrite = true;
       persist();
@@ -1348,6 +2063,7 @@ async function takeUserChanges(id, entry) {
 
 /** A tab changed its group, not by the worker's doing: see userMoves, once tabs have stopped moving. */
 function noteMove(tabId) {
+  stripMoved.delete(tabId); // its group change places it (see userMoves), not a strip move
   moves.add(tabId);
   userMoved.set(tabId, Date.now());
   settleMoves();
@@ -1485,6 +2201,7 @@ function writeTree() {
 let snapshotTimer = null;
 let holdUntil = 0;
 let lastSaved = null; // the windows of the last snapshot saved, to tell which of them closed (see saveSnapshot)
+let closedTaken = false; // a window came back from a kept closed window since the last snapshot (see restoreWindow)
 // While changes keep coming (a page that changes its URL every moment, say), the snapshot waits for them to stop, but no
 // longer than this after the first of them.
 const SNAPSHOT_MAX_WAIT_MS = 5000;
@@ -1513,8 +2230,9 @@ function holdSnapshot() {
 
 async function saveSnapshot() {
   // While windows are closing, keep the snapshot that still has them: holdSnapshot saves the
-  // next one, if the browser is still up by then.
-  const held = () => Date.now() < holdUntil;
+  // next one, if the browser is still up by then. Nor while a window that came may be one coming back: cameBack saves
+  // the next one, once its tabs have their tree (or none).
+  const held = () => Date.now() < holdUntil || watching.size > 0;
   if (held()) return;
   try {
     const windows = await chrome.windows.getAll({ populate: true, windowTypes: ['normal'] });
@@ -1538,6 +2256,7 @@ async function saveSnapshot() {
             heir: node?.heir ?? null,
           };
           for (const key of GROUP_FIELDS) if (node?.[key] != null) entry[key] = node[key];
+          if (tab.pinned) entry.pinned = true; // for a folder made anew after a reload (see bringBackFolders)
           if (heads.has(tab.id)) { // to take its group back after a reload or restart
             const look = heads.get(tab.id);
             entry.hadGroup = look ? { title: look.title, color: look.color } : true;
@@ -1550,10 +2269,21 @@ async function saveSnapshot() {
     // that are back already go from there.
     const previous = lastSaved ?? (await chrome.storage.local.get('snapshot')).snapshot?.windows ?? [];
     const gone = goneWindows(previous, saved);
-    if (gone.length || !lastSaved) {
+    if (gone.length || !lastSaved || closedTaken) {
+      closedTaken = false;
       const { closedWindows = [] } = await chrome.storage.local.get('closedWindows');
-      const kept = addClosedWindows(closedWindows.filter((win) => goneWindows([win], saved).length), gone, Date.now());
-      if (JSON.stringify(kept) !== JSON.stringify(closedWindows)) await chrome.storage.local.set({ closedWindows: kept });
+      // A window back from one of them that closed again before a snapshot had it leaves it kept, free to take again.
+      const open = new Set(windows.map((win) => win.id));
+      const left = closedWindows.filter((win) => goneWindows([win], saved, backByUrl).length)
+        .map(({ takenBy, ...win }) => (takenBy != null && open.has(takenBy) ? { ...win, takenBy } : win));
+      // Not twice: the last window, kept while the snapshot still has it, is gone again from a later one.
+      const keptIds = new Set(left.flatMap((win) => win.tabs.map((tab) => tab.id)));
+      const kept = addClosedWindows(left, gone.filter((win) => !win.tabs.some((tab) => keptIds.has(tab.id))), Date.now());
+      if (JSON.stringify(kept) !== JSON.stringify(closedWindows)) {
+        // Should this fail (the storage is full, say), the snapshot is saved all the same.
+        await chrome.storage.local.set({ closedWindows: kept })
+          .catch((error) => console.warn('[tree-tabs] could not keep the closed windows', error));
+      }
     }
     lastSaved = saved;
     // With no window left (the browser keeps running in the background) keep the last one.

@@ -11,7 +11,7 @@ import {
 } from './harness.mjs';
 
 const ARTIFACTS = fileURLToPath(new URL('./artifacts/', import.meta.url));
-const PROFILE = `${ARTIFACTS}profile`;
+const PROFILE = process.env.E2E_PROFILE || `${ARTIFACTS}profile`;
 const SNAPSHOT_SETTLE_MS = 1500; // the worker saves its snapshot 1 s after the last change
 
 const isTestPage = (title) => /^A(\.|$)/.test(title ?? '');
@@ -257,8 +257,8 @@ function withoutMissing(parents, present) {
 }
 
 /** Fire an HTML drag from one row onto another row (or, with targetId null, the empty area). */
-async function dragInPanel(panel, sourceId, targetId, fraction) {
-  await panel.evaluate((source, target, y) => {
+async function dragInPanel(panel, sourceId, targetId, fraction, { ctrl = false } = {}) {
+  await panel.evaluate((source, target, y, ctrlKey) => {
     const from = document.getElementById(`tab-${source}`);
     const to = document.getElementById(target == null ? 'scroller' : `tab-${target}`);
     const dataTransfer = new DataTransfer();
@@ -266,11 +266,11 @@ async function dragInPanel(panel, sourceId, targetId, fraction) {
     const point = { clientX: rect.left + rect.width / 2, clientY: rect.top + rect.height * y };
     const fire = (el, type, extra = {}) =>
       el.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer, ...extra }));
-    fire(from, 'dragstart');
+    fire(from, 'dragstart', { ctrlKey });
     fire(to, 'dragover', point);
     fire(to, 'drop', point);
     fire(from, 'dragend');
-  }, sourceId, targetId, fraction);
+  }, sourceId, targetId, fraction, ctrl);
 }
 
 let windowId;
@@ -2006,6 +2006,574 @@ try {
     }
   });
 
+  await step('the keyboard shortcuts act on the tab where they are pressed: its tree collapses and expands, a new tab as child, to the top level, the tree closes', async () => {
+    // As chrome.commands.onCommand does (the keys themselves are the browser's to send), for the tab given.
+    const command = (name, tabId) => sendFromPanel({ type: 'command', command: name, tabId });
+    const [k, k1, k2] = await treeOfTwo('Ks');
+    try {
+      await command('toggle-tree', k1);
+      await eventually(async () => (await storedNodes())[k]?.collapsed, true, 'Ks collapsed from Ks.1');
+      await command('toggle-tree', k);
+      await eventually(async () => (await storedNodes())[k]?.collapsed, false, 'Ks expanded again');
+      const known = new Set((await allTabs()).map((t) => t.id));
+      await command('new-child', k2);
+      const child = await waitFor(async () => (await allTabs()).find((t) => !known.has(t.id))?.id, 'the new tab');
+      await eventually(async () => (await storedNodes())[child]?.parent, k2, 'a new tab as child of Ks.2');
+      await command('top-level', k2);
+      await eventually(async () => (await storedNodes())[k2]?.parent ?? null, null, 'Ks.2 at the top level');
+      await command('close-tree', k2);
+      await eventually(async () => (await allTabs()).some((t) => t.id === k2 || t.id === child), false, 'Ks.2 and its new tab closed');
+    } finally {
+      await closeTabs(/^Ks(\.|$)/);
+    }
+  });
+
+  await step('the menu moves a tree to another open window, and closes a tree\'s tab group from any of its tabs', async () => {
+    const windowOfC = await windowOf('C');
+    const [m, m1] = await treeOfTwo('Mw');
+    try {
+      const there = (await allTabs()).find((t) => t.windowId === windowOfC && t.active).title;
+      await sleep(400); // the panel's list of windows (refreshWindows)
+      await panel.click(`#tab-${m} .title`, { button: 'right' });
+      await panel.click('#menu button.submenu::-p-text(Move tree to window)');
+      await panel.click(`#menu button::-p-text(“${there.slice(0, 10)})`);
+      await eventually(async () => [await windowOf('Mw'), await windowOf('Mw.1'), await windowOf('Mw.2')],
+        [windowOfC, windowOfC, windowOfC], 'Mw\'s tree in C\'s window');
+      await eventually(async () => (await storedNodes())[m1]?.parent, m, 'a tree there still');
+    } finally {
+      await closeTabs(/^Mw(\.|$)/);
+    }
+    const [g, g1] = await treeOfTwo('Cg');
+    try {
+      await setGroupSettings('trees');
+      await eventually(async () => (await groupTabs(g)).length, 3, 'Cg\'s group');
+      await panel.click(`#tab-${g1} .title`, { button: 'right' });
+      await panel.click('#menu button::-p-text(Close group (3 tabs))');
+      await eventually(async () => (await allTabs()).filter((t) => /^Cg(\.|$)/.test(t.title)).length, 0, 'the group\'s tabs closed');
+    } finally {
+      await setGroupSettings(GROUPS);
+      await closeTabs(/^Cg(\.|$)/);
+    }
+  });
+
+  await step('the settings change how the panel looks: theme, row height, text size and indent', async () => {
+    const look = () => panel.evaluate(() => {
+      const row = document.querySelector('#tree .row');
+      return {
+        ...document.documentElement.dataset,
+        row: Math.round(parseFloat(getComputedStyle(row).height)),
+        text: getComputedStyle(row.querySelector('.title')).fontSize,
+        bg: getComputedStyle(document.body).backgroundColor,
+      };
+    });
+    try {
+      await inWorker((s) => chrome.storage.local.set({ settings: s }),
+        { groups: GROUPS, ownGroups: 'leave', theme: 'dark', density: 'compact', textSize: 'large', indent: 'wide' });
+      await eventually(look, {
+        theme: 'dark', density: 'compact', textSize: 'large', indent: 'wide', unread: 'dot', searchBox: 'show', row: 26, text: '15px',
+        bg: 'rgb(31, 31, 31)',
+      }, 'dark, compact, with large text');
+      await inWorker((s) => chrome.storage.local.set({ settings: s }), { groups: GROUPS, ownGroups: 'leave', theme: 'light', density: 'roomy' });
+      await eventually(async () => {
+        const { theme, density, textSize, row, text, bg } = await look();
+        return { theme, density, textSize, row, text, bg };
+      }, { theme: 'light', density: 'roomy', textSize: 'normal', row: 36, text: '13px', bg: 'rgb(255, 255, 255)' }, 'light and roomy');
+    } finally {
+      await setGroupSettings(GROUPS);
+    }
+    await eventually(async () => (await look()).row, 30, 'the normal look again');
+  });
+
+  await step('the quick switcher finds a tab in any window and switches to it there; asked again, it comes forward', async () => {
+    const windowOfC = await windowOf('C');
+    await inWorker((w, url) => chrome.tabs.create({ windowId: w, url, active: false }), windowOfC, `${base}/?name=Swfar`);
+    const far = await idOf('Swfar');
+    const url = `chrome-extension://${extensionId}/switcher.html`;
+    const switchers = async () => (await allTabs()).filter((t) => (t.url || t.pendingUrl || '').startsWith(url)).length;
+    let switcher = null;
+    try {
+      await panel.click('#find');
+      const target = await browser.waitForTarget((t) => t.url().startsWith(url), { timeout: 10000 });
+      switcher = await target.page();
+      await switcher.waitForSelector('#results .tab');
+      await switcher.type('#query', 'swfar');
+      await eventually(() => switcher.$$eval('#results .tab .title', (els) => els.map((el) => el.textContent)), ['Swfar'], 'Swfar alone');
+      assert.match(await switcher.$eval('#results .window', (el) => el.textContent), /^Window of /, 'under another window');
+      await sendFromPanel({ type: 'openSwitcher', windowId });
+      await sleep(300);
+      assert.equal(await switchers(), 1, 'asked again: the same switcher');
+      // Enter switches to the tab and closes the switcher: its page may be gone before the key's events are answered.
+      await switcher.keyboard.press('Enter').catch((error) => {
+        if (!/Target closed|Session closed/i.test(error?.message ?? '')) throw error;
+      });
+      await eventually(async () => (await allTabs()).find((t) => t.id === far)?.active, true, 'Swfar the active tab of its window');
+      await eventually(switchers, 0, 'the switcher closed');
+    } finally {
+      await closeTabs(/^Swfar$/);
+      if (switcher && !switcher.isClosed()) await switcher.close().catch(() => {});
+    }
+  });
+
+  await step('folders: a tree goes into a new folder, another into it from the menu; it is named and given an icon in the panel and in its page, which lists its tabs; its "+" opens a tab in it; closed, its tabs step up', async () => {
+    const folderBase = `chrome-extension://${extensionId}/folder.html`;
+    const tabById = (id) => inWorker((i) => chrome.tabs.get(i).catch(() => null), id);
+    const folderParams = async (id) => Object.fromEntries(new URL((await tabById(id))?.url ?? 'about:blank').searchParams);
+    const [f] = await treeOfTwo('Fo');
+    const [g] = await treeOfTwo('Fp');
+    let folder = null;
+    let child = null;
+    try {
+      await panel.click(`#tab-${f} .title`, { button: 'right' });
+      await panel.click('#menu button::-p-text(Move tree to new folder)');
+      folder = await waitFor(async () => (await allTabs()).find((t) => t.url?.startsWith(folderBase) || t.pendingUrl?.startsWith(folderBase))?.id, 'the folder');
+      await eventually(async () => {
+        const nodes = await storedNodes();
+        return [nodes[folder]?.parent ?? null, nodes[f]?.parent];
+      }, [null, folder], 'Fo\'s tree in the folder, at the top level where Fo was');
+      await eventually(() => panel.$eval(`#tab-${folder}`, (el) => [el.classList.contains('folder'), el.querySelector('.title').textContent,
+        el.querySelector('.emoji').textContent]).catch(() => null), [true, 'Folder', '📁'], 'the folder\'s row: its name and icon');
+      // Named and given an icon from its menu in the panel.
+      await panel.click(`#tab-${folder} .title`, { button: 'right' });
+      const field = await panel.waitForSelector('#menu:not([hidden]) .group-field input');
+      await field.evaluate((el) => {
+        el.focus();
+        el.select();
+      });
+      await panel.keyboard.type('Reading');
+      await panel.keyboard.press('Enter');
+      await eventually(async () => [(await folderParams(folder)).name, (await tabById(folder))?.title], ['Reading', 'Reading'], 'renamed from the panel');
+      await panel.click(`#tab-${folder} .title`, { button: 'right' });
+      await panel.click('#menu .icon-choice::-p-text(⭐)');
+      await eventually(async () => (await folderParams(folder)).icon, '⭐', 'its icon from the panel');
+      await eventually(() => panel.$eval(`#tab-${folder} .emoji`, (el) => el.textContent).catch(() => null), '⭐', 'the row\'s icon');
+      // Another tree goes into it from the menu.
+      await panel.click(`#tab-${g} .title`, { button: 'right' });
+      await panel.click('#menu button.submenu::-p-text(Move tree to folder)');
+      await panel.click('#menu button::-p-text(Reading)');
+      await eventually(async () => (await storedNodes())[g]?.parent, folder, 'Fp\'s tree in the folder');
+      // Its page lists its tabs, and renames it.
+      const target = await browser.waitForTarget((t) => t.url().startsWith(folderBase), { timeout: 10000 });
+      const page = collectErrors(await target.page(), 'folder page');
+      await eventually(() => page.$$eval('#tabs li .title', (els) => els.map((el) => el.textContent)).catch(() => null),
+        ['Fo', 'Fo.1', 'Fo.2', 'Fp', 'Fp.1', 'Fp.2'], 'the page lists the tabs in the folder');
+      await (await page.waitForSelector('#name')).evaluate((el) => {
+        el.focus();
+        el.select();
+      });
+      await page.keyboard.type('Read later');
+      await page.keyboard.press('Enter');
+      await eventually(async () => [(await folderParams(folder)).name, (await tabById(folder))?.title], ['Read later', 'Read later'], 'renamed in its page');
+      await eventually(() => panel.$eval(`#tab-${folder} .title`, (el) => el.textContent).catch(() => null), 'Read later', 'the row\'s name');
+      // Its "+": a new tab at its end.
+      const known = new Set((await allTabs()).map((t) => t.id));
+      await panel.hover(`#tab-${folder} .title`);
+      await panel.click(`#tab-${folder} .add`);
+      child = await waitFor(async () => (await allTabs()).find((t) => !known.has(t.id))?.id, 'the folder\'s new tab');
+      await eventually(async () => (await storedNodes())[child]?.parent, folder, 'a new tab in the folder');
+      // Closed, its tabs step up a level.
+      await inWorker((i) => chrome.tabs.remove(i), folder);
+      await eventually(async () => {
+        const nodes = await storedNodes();
+        return [nodes[f]?.parent ?? null, nodes[g]?.parent ?? null, nodes[child]?.parent ?? null];
+      }, [null, null, null], 'its tabs at the top level once it closed');
+      folder = null;
+    } finally {
+      await inWorker((ids) => chrome.tabs.remove(ids.filter((i) => i != null)).catch(() => {}), [folder, child]);
+      await closeTabs(/^(Fo|Fp)(\.|$)/);
+    }
+  });
+
+  await step('selection: Ctrl+click and Shift+click select tabs in the panel and the tab strip, the menu and a drag act on them all, closing many asks first; Ctrl+× closes a tree; Ctrl+drag takes a tab without its children', async () => {
+    const titlesOf = async (pattern) => (await allTabs()).filter((t) => pattern.test(t.title ?? '')).map((t) => t.title).sort();
+    const highlighted = async () => (await allTabs()).filter((t) => t.windowId === windowId && t.highlighted).map((t) => t.title).sort();
+    const withKey = async (key, selector) => {
+      await panel.keyboard.down(key);
+      try {
+        await panel.click(selector);
+      } finally {
+        await panel.keyboard.up(key);
+      }
+    };
+    const [sa, sa1] = await treeOfTwo('Sa');
+    const [sb, sb1, sb2] = await treeOfTwo('Sb'); // Sb.2 the active tab
+    let folder = null;
+    try {
+      await withKey('Control', `#tab-${sa} .title`);
+      await withKey('Control', `#tab-${sb} .title`);
+      await eventually(highlighted, ['Sa', 'Sb', 'Sb.2'], 'Sa and Sb selected, with the active tab, in the tab strip too');
+      await eventually(() => panel.$$eval('.row.selected', (els) => els.length), 2, 'the panel shows them selected');
+      // The menu acts on them all: into a new folder, each with the tabs under it.
+      await panel.click(`#tab-${sa} .title`, { button: 'right' });
+      await eventually(() => panel.$eval('#menu .menu-label', (el) => el.textContent).catch(() => null), '3 tabs selected', 'the selection\'s menu');
+      await panel.click('#menu button::-p-text(Move to new folder)');
+      folder = await waitFor(async () => (await allTabs()).find((t) => (t.url || t.pendingUrl || '').includes('/folder.html'))?.id, 'the folder');
+      await eventually(async () => {
+        const nodes = await storedNodes();
+        return [nodes[sa]?.parent, nodes[sb]?.parent, nodes[sa1]?.parent, nodes[sb2]?.parent];
+      }, [folder, folder, sa, sb], 'both trees in the folder, as they were');
+      // A click ends the selection; Shift+click selects the rows from the one clicked last, as they show.
+      await panel.click(`#tab-${sa} .title`);
+      await eventually(highlighted, ['Sa'], 'a click ends the selection');
+      await withKey('Shift', `#tab-${sb1} .title`);
+      await eventually(highlighted, ['Sa', 'Sa.1', 'Sa.2', 'Sb', 'Sb.1'], 'Shift+click: Sa to Sb.1');
+      // Closing five tabs asks first (the setting's default): Esc keeps them, the dialog's button closes them.
+      await panel.click(`#tab-${sa1} .title`, { button: 'right' });
+      await panel.click('#menu button::-p-text(Close 5 tabs)');
+      await panel.waitForSelector('#dialog:not([hidden])', { timeout: 5000 });
+      assert.match(await panel.$eval('#dialog-text', (el) => el.textContent), /^Close the 5 tabs you selected\?$/);
+      await panel.keyboard.press('Escape');
+      await eventually(() => panel.$eval('#dialog', (el) => el.hidden), true, 'Esc: no dialog');
+      assert.deepEqual(await titlesOf(/^S[ab]/), ['Sa', 'Sa.1', 'Sa.2', 'Sb', 'Sb.1', 'Sb.2'], 'nothing closed');
+      await panel.click(`#tab-${sa1} .title`, { button: 'right' });
+      await panel.click('#menu button::-p-text(Close 5 tabs)');
+      await panel.click('#dialog-ok');
+      await eventually(() => titlesOf(/^S[ab]/), ['Sb.2'], 'the five closed');
+      // Ctrl+× closes a tab with the tabs under it (three: no question).
+      const [sc] = await treeOfTwo('Sc');
+      await panel.hover(`#tab-${sc} .title`);
+      await withKey('Control', `#tab-${sc} .close`);
+      await eventually(() => titlesOf(/^Sc/), [], 'Ctrl+× closed Sc with its tabs');
+      // Ctrl held as a drag starts: the tab goes alone, its tabs stay where it was.
+      const [sd, sd1, sd2] = await treeOfTwo('Sd');
+      const [se] = await treeOfTwo('Se');
+      await dragInPanel(panel, sd, se, 0.5, { ctrl: true });
+      await eventually(async () => {
+        const nodes = await storedNodes();
+        return [nodes[sd]?.parent, nodes[sd1]?.parent ?? null, nodes[sd2]?.parent ?? null];
+      }, [se, null, null], 'Sd alone under Se; Sd.1 and Sd.2 at the top level');
+      // A drag of a selected tab takes the selection.
+      await panel.click(`#tab-${sd1} .title`);
+      await eventually(highlighted, ['Sd.1'], 'Sd.1 the active tab');
+      await withKey('Control', `#tab-${sd2} .title`);
+      await eventually(highlighted, ['Sd.1', 'Sd.2'], 'Sd.1 and Sd.2 selected');
+      // The panel draws the selection a moment after the browser has it: the drag reads it from the panel.
+      await eventually(() => panel.$eval(`#tab-${sd2}`, (el) => el.classList.contains('selected')).catch(() => null), true,
+        'the panel shows Sd.2 selected');
+      await dragInPanel(panel, sd1, se, 0.5);
+      await eventually(async () => {
+        const nodes = await storedNodes();
+        return [nodes[sd1]?.parent, nodes[sd2]?.parent];
+      }, [se, se], 'the selection dragged under Se');
+    } finally {
+      await inWorker((ids) => chrome.tabs.remove(ids.filter((i) => i != null)).catch(() => {}), [folder]);
+      await closeTabs(/^S[a-e](\.|$)/);
+    }
+  });
+
+  /** The settings for a step: the run's groups mode, and `extra`; {} puts the others back to their defaults. */
+  const setSettings = (extra) => inWorker((s) => chrome.storage.local.set({ settings: s }), { groups: GROUPS, ownGroups: 'leave', ...extra });
+  const tabNow = (id) => inWorker((i) => chrome.tabs.get(i).catch(() => null), id);
+  /** A tab made with `props` (as chrome.tabs.create takes them): its id. */
+  async function newTabWith(props) {
+    const known = new Set((await allTabs()).map((t) => t.id));
+    await inWorker((p) => chrome.tabs.create(p), props);
+    return waitFor(async () => (await allTabs()).find((t) => !known.has(t.id))?.id, 'the new tab');
+  }
+
+  await step('where new tabs go, as the settings say: a New Tab page under the current tab or next to it, a link\'s tab first under its page; the New tab button with Ctrl, "New tab below", and the new-sibling shortcut', async () => {
+    const made = [];
+    const [w, w1, w2] = await treeOfTwo('Wn'); // Wn.2 the active tab
+    const right = async (id, after) => (await tabNow(id))?.index === (await tabNow(after))?.index + 1;
+    try {
+      // A New Tab page as Ctrl+T opens it (at the end of the strip, the current tab its opener): under it, the last.
+      await setSettings({ newTabPlacement: 'child' });
+      await sleep(300);
+      const n1 = await newTabWith({ windowId, openerTabId: w2, index: 9999 });
+      made.push(n1);
+      await eventually(async () => [(await storedNodes())[n1]?.parent, await right(n1, w2)], [w2, true], 'a New Tab page under the current tab');
+      // Next to it: after the tabs under it, under its parent. (Ctrl+T opens from the current tab: Wn.1 now.)
+      await setSettings({ newTabPlacement: 'sibling' });
+      await activate(w1);
+      await waitFor(() => isActive(w1), 'Wn.1 the active tab');
+      await sleep(300);
+      const n2 = await newTabWith({ windowId, openerTabId: w1, index: 9999 });
+      made.push(n2);
+      await eventually(async () => [(await storedNodes())[n2]?.parent, await right(n2, w1)], [w, true], 'a New Tab page next to the current tab');
+      // A link's tab, first under its page.
+      await setSettings({ linkPlacement: 'first' });
+      await sleep(300);
+      const page = await pageNamed(browser, base, 'Wn');
+      await page.bringToFront();
+      await page.click('#l3', { button: 'middle' });
+      const w3 = await idOf('Wn.3');
+      made.push(w3);
+      await eventually(async () => [(await storedNodes())[w3]?.parent, await right(w3, w)], [w, true], 'a link\'s tab first under its page');
+      await setSettings({});
+      await sleep(300);
+      // The New tab button with Ctrl held: under the current tab (Wn.1 now), the last.
+      await activate(w1);
+      await waitFor(() => isActive(w1), 'Wn.1 the active tab');
+      let known = new Set((await allTabs()).map((t) => t.id));
+      await panel.keyboard.down('Control');
+      try {
+        await panel.click('#new-tab');
+      } finally {
+        await panel.keyboard.up('Control');
+      }
+      const n3 = await waitFor(async () => (await allTabs()).find((t) => !known.has(t.id))?.id, 'the button\'s tab');
+      made.push(n3);
+      await eventually(async () => (await storedNodes())[n3]?.parent, w1, 'Ctrl+New tab: under the current tab');
+      // "New tab below" in Wn.2's menu: next to it.
+      known = new Set((await allTabs()).map((t) => t.id));
+      await panel.click(`#tab-${w2} .title`, { button: 'right' });
+      await panel.click('#menu button::-p-text(New tab below)');
+      const n4 = await waitFor(async () => (await allTabs()).find((t) => !known.has(t.id))?.id, 'the tab below Wn.2');
+      made.push(n4);
+      await eventually(async () => (await storedNodes())[n4]?.parent, w, '"New tab below": next to Wn.2, under Wn');
+      // The new-sibling shortcut on Wn: after its tree, at the top level.
+      known = new Set((await allTabs()).map((t) => t.id));
+      await sendFromPanel({ type: 'command', command: 'new-sibling', tabId: w });
+      const n5 = await waitFor(async () => (await allTabs()).find((t) => !known.has(t.id))?.id, 'the shortcut\'s tab');
+      made.push(n5);
+      await eventually(async () => [(await storedNodes())[n5]?.parent ?? null, (await tabNow(n5))?.active], [null, true], 'the shortcut: next to Wn, at the top level');
+    } finally {
+      await setSettings({});
+      await inWorker((ids) => chrome.tabs.remove(ids).catch(() => {}), made);
+      await closeTabs(/^Wn(\.|$)/);
+    }
+  });
+
+  await step('closing and the mouse, as the settings say: a closed tab\'s first child takes its place, the tree picks the tab to switch to, a click on the current tab folds its tree, a drop onto a tab goes first, a tab moved in the tab strip takes the place of the tab after it', async () => {
+    const [, cp1, cp2] = await treeOfTwo('Cp');
+    try {
+      await setSettings({ closeParent: 'promote' });
+      await sleep(300);
+      await closeTabs(/^Cp$/);
+      await eventually(async () => {
+        const nodes = await storedNodes();
+        return [nodes[cp1]?.parent ?? null, nodes[cp2]?.parent];
+      }, [null, cp1], 'Cp.1 in Cp\'s place, Cp.2 under it');
+      // The active tab closes: the tree gives the tab above it under its parent (the browser would go back to the page
+      // that opened it).
+      await setSettings({ afterClose: 'tree' });
+      await sleep(300);
+      const [ac, ac1, ac2] = await treeOfTwo('Ac'); // Ac.2 the active tab
+      await inWorker((i) => chrome.tabs.remove(i), ac2);
+      await eventually(() => isActive(ac1), true, 'Ac.1 the active tab: the one above Ac.2 under Ac');
+      // The browser picks that one too (the next tab opened from the same page). Not so here: Ac.x, put under Ac by a
+      // drop, was opened from no page, and Ac.1 has a tab under it (Ac.1.1) and Ac.y, at the top level, comes after Ac.x.
+      // Ac.x closes: the browser would pick a tab next to it (Ac.1.1 in its group, or Ac.y), the tree Ac.1.
+      const acPage = await pageNamed(browser, base, 'Ac.1');
+      await acPage.bringToFront();
+      await acPage.click('#l1', { button: 'middle' });
+      const ac11 = await idOf('Ac.1.1');
+      await eventually(async () => (await storedNodes())[ac11]?.parent, ac1, 'Ac.1.1 under Ac.1');
+      const loose = [];
+      for (const name of ['Ac.x', 'Ac.y']) {
+        await inWorker((w, u) => chrome.tabs.create({ windowId: w, url: u, active: false }), windowId, `${base}/?name=${name}`);
+        loose.push(await idOf(name));
+      }
+      const [acx, acy] = loose;
+      await dragInPanel(panel, acx, ac, 0.5);
+      await eventually(async () => [(await storedNodes())[acx]?.parent, (await tabNow(acx))?.index === (await tabNow(ac11))?.index + 1,
+        (await tabNow(acy))?.index === (await tabNow(acx))?.index + 1], [ac, true, true], 'Ac.x dropped under Ac, after Ac.1.1 and before Ac.y');
+      await settledGroups(); // the drop takes Ac.x into Ac's group
+      await activate(acx);
+      await waitFor(() => isActive(acx), 'Ac.x the active tab');
+      await inWorker((i) => chrome.tabs.remove(i), acx);
+      await eventually(() => isActive(ac1), true, 'Ac.1 the active tab: the one above Ac.x under Ac, not one next to it');
+      // A click on the current tab's row folds its tree.
+      await setSettings({ clickToFold: 'click' });
+      await sleep(300);
+      await activate(ac);
+      await waitFor(() => isActive(ac), 'Ac the active tab');
+      await panel.click(`#tab-${ac} .title`);
+      await eventually(async () => (await storedNodes())[ac]?.collapsed, true, 'a click on the current tab\'s row folds its tree');
+      await panel.click(`#tab-${ac} .title`);
+      await eventually(async () => (await storedNodes())[ac]?.collapsed, false, 'and unfolds it');
+      // A drop onto the middle of a tab: its first child.
+      await setSettings({ dropInto: 'first' });
+      await sleep(300);
+      const [dp, , dp2] = await treeOfTwo('Dp');
+      await dragInPanel(panel, cp2, dp, 0.5);
+      await eventually(async () => [(await storedNodes())[cp2]?.parent, (await tabNow(cp2))?.index === (await tabNow(dp))?.index + 1],
+        [dp, true], 'a drop onto the middle: the first child');
+      // A tab moved in the tab strip right before Dp.2: under Dp, as Dp.2 is.
+      await setSettings({ stripMoves: 'follow' });
+      // The drop ended Cp.1's tree, and the group pass took it out of its group: a move of it within a second of that
+      // is the pass's own (see TOUCH_MS). The user's comes once the groups are settled.
+      await settledGroups();
+      await inWorker(async (i, j) => {
+        const [from, to] = [(await chrome.tabs.get(i)).index, (await chrome.tabs.get(j)).index];
+        await chrome.tabs.move(i, { index: from < to ? to - 1 : to });
+      }, cp1, dp2);
+      await eventually(async () => (await storedNodes())[cp1]?.parent, dp, 'moved in the tab strip before Dp.2: under Dp');
+    } finally {
+      await setSettings({});
+      await closeTabs(/^(Cp|Ac|Dp)(\.|$)/);
+    }
+  });
+
+  await step('a tab group of your own shows in the panel (a band in its colour, its name on its first tab); its menu makes it, adds to it, renames and recolours it, takes a tab out, moves it to a new window; pinned tabs reorder by a drag', async () => {
+    const ids = [];
+    for (const name of ['Ug1', 'Ug2', 'Ug3', 'Pa', 'Pb']) {
+      await inWorker((w, u, pinned) => chrome.tabs.create({ windowId: w, url: u, active: false, pinned }), windowId,
+        `${base}/?name=${name}`, name.startsWith('P'));
+      ids.push(await idOf(name));
+    }
+    const [u1, u2, u3, pa, pb] = ids;
+    const groupOf = async (id) => (await tabNow(id))?.groupId ?? null;
+    try {
+      // Ug1 and Ug2 selected, into a new group of their own.
+      await activate(u1);
+      await waitFor(() => isActive(u1), 'Ug1 the active tab');
+      await panel.keyboard.down('Control');
+      try {
+        await panel.click(`#tab-${u2} .title`);
+      } finally {
+        await panel.keyboard.up('Control');
+      }
+      await eventually(async () => (await tabNow(u2))?.highlighted, true, 'Ug2 selected');
+      await eventually(() => panel.$eval(`#tab-${u2}`, (el) => el.classList.contains('selected')).catch(() => null), true,
+        'the panel shows Ug2 selected');
+      await panel.click(`#tab-${u1} .title`, { button: 'right' });
+      await panel.click('#menu button::-p-text(Add 2 tabs to new group)');
+      await eventually(async () => {
+        const [a, b] = await Promise.all([groupOf(u1), groupOf(u2)]);
+        return a !== -1 && a === b;
+      }, true, 'Ug1 and Ug2 in a new group');
+      const group = await groupOf(u1);
+      await inWorker((g) => chrome.tabGroups.update(g, { title: 'Mine', color: 'green' }), group);
+      await eventually(() => panel.$$eval('.row.in-group', (els) => els.map((el) => el.id)), [`tab-${u1}`, `tab-${u2}`], 'a band on the group\'s tabs');
+      await eventually(() => pillOf(panel, u1), 'Mine', 'the group\'s name on its first tab');
+      // Renamed and recoloured from the menu of one of its tabs.
+      await panel.click(`#tab-${u2} .title`, { button: 'right' });
+      const field = await panel.waitForSelector('#menu:not([hidden]) .group-field input');
+      await field.evaluate((el) => {
+        el.focus();
+        el.select();
+      });
+      await panel.keyboard.type('Ours');
+      await panel.keyboard.press('Enter');
+      await eventually(async () => (await inWorker((g) => chrome.tabGroups.get(g), group)).title, 'Ours', 'renamed from the panel');
+      await panel.click(`#tab-${u2} .title`, { button: 'right' });
+      await panel.click('#menu .swatch[aria-label="Purple"]');
+      await eventually(async () => (await inWorker((g) => chrome.tabGroups.get(g), group)).color, 'purple', 'recoloured from the panel');
+      // Ug3 in, and out again.
+      await panel.click(`#tab-${u3} .title`, { button: 'right' });
+      await panel.click('#menu button.submenu::-p-text(Add to group)');
+      await panel.click('#menu button::-p-text(“Ours”)');
+      await eventually(() => groupOf(u3), group, 'Ug3 in the group');
+      await panel.click(`#tab-${u3} .title`, { button: 'right' });
+      await panel.click('#menu button::-p-text(Remove from group)');
+      await eventually(() => groupOf(u3), -1, 'Ug3 out of it');
+      // Pinned tabs reorder by a drag: Pb onto Pa's left half goes before it.
+      await panel.evaluate((source, target) => {
+        const from = document.querySelector(`.pin[data-id="${source}"]`);
+        const to = document.querySelector(`.pin[data-id="${target}"]`);
+        const dataTransfer = new DataTransfer();
+        const rect = to.getBoundingClientRect();
+        const point = { clientX: rect.left + 2, clientY: rect.top + rect.height / 2 };
+        const fire = (el, type, extra = {}) => el.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer, ...extra }));
+        fire(from, 'dragstart');
+        fire(to, 'dragover', point);
+        fire(to, 'drop', point);
+        fire(from, 'dragend');
+      }, pb, pa);
+      await eventually(async () => (await tabNow(pb))?.index < (await tabNow(pa))?.index, true, 'Pb dragged before Pa');
+      // The group, whole, to a new window.
+      await panel.click(`#tab-${u1} .title`, { button: 'right' });
+      await panel.click('#menu button::-p-text(Move group to new window)');
+      await eventually(async () => {
+        const [a, b] = await Promise.all([tabNow(u1), tabNow(u2)]);
+        return a?.windowId !== windowId && a?.windowId === b?.windowId && a?.groupId === b?.groupId && a?.groupId !== -1;
+      }, true, 'the group in a new window');
+    } finally {
+      await closeTabs(/^(Ug[123]|Pa|Pb)$/);
+      // The new window closes with them: the snapshot waits (WINDOW_CLOSE_HOLD_MS) before the next step's changes.
+      await sleep(6500);
+    }
+  });
+
+  await step('looks and search: a tab opened in the background is unread until looked at; a regular expression; a tab only its address matched shows it; the search box hides until Ctrl+F; your own colours; the menu of folders and groups; the settings page lists the shortcuts', async () => {
+    const made = [];
+    const setFilter = (text) => panel.$eval('#filter', (el, value) => {
+      el.value = value;
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    }, text);
+    const [ex] = await treeOfTwo('Ex');
+    try {
+      await inWorker((w, u) => chrome.tabs.create({ windowId: w, url: u, active: false }), windowId, `${base}/?name=Exu`);
+      const exu = await idOf('Exu');
+      made.push(exu);
+      const unread = () => panel.$eval(`#tab-${exu}`, (el) => el.classList.contains('unread')).catch(() => null);
+      await eventually(unread, true, 'unread before it is looked at');
+      await activate(exu);
+      await eventually(unread, false, 'read once it was the active tab');
+      // A regular expression: Ex.1 and Ex.2 match, Ex shows dimmed above them.
+      await panel.click('#regex');
+      await eventually(() => panel.$eval('#regex', (el) => el.getAttribute('aria-pressed')), 'true', 'the .* button on');
+      await setFilter(String.raw`^Ex\.\d$`);
+      await eventually(() => panel.$$eval('.row:not(.dim) .title', (els) => els.map((el) => el.textContent).sort()), ['Ex.1', 'Ex.2'],
+        'the regular expression: Ex.1 and Ex.2');
+      await setFilter('(Ex');
+      await eventually(() => panel.$eval('#filter', (el) => el.classList.contains('invalid')), true, 'no regular expression: marked');
+      await panel.click('#regex');
+      // A tab that only its address matched: its address shows, marked.
+      await setFilter('name=Exu');
+      await eventually(() => panel.$eval(`#tab-${exu} .url`, (el) => (el.hidden ? null : /name=Exu/.test(el.textContent))).catch(() => null),
+        true, 'its address shows when only it matched');
+      await setFilter('');
+      // The search box hidden until Ctrl+F.
+      await setSettings({ searchBox: 'hide' });
+      await eventually(() => panel.$eval('.search', (el) => getComputedStyle(el).display), 'none', 'the search box hidden');
+      await panel.focus('#tree');
+      await panel.keyboard.down('Control');
+      await panel.keyboard.press('f');
+      await panel.keyboard.up('Control');
+      await eventually(() => panel.$eval('.search', (el) => getComputedStyle(el).display !== 'none'), true, 'Ctrl+F shows it');
+      await setSettings({});
+      // Your own colours.
+      const activeColor = () => panel.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--active').trim());
+      await inWorker(() => chrome.storage.local.set({ colors: { on: true, values: { active: '#123456' } } }));
+      await eventually(activeColor, '#123456', 'the panel in your colours');
+      await inWorker(() => chrome.storage.local.remove('colors'));
+      await eventually(async () => (await activeColor()) !== '#123456', true, 'and back in the theme\'s');
+      // The menu of folders and groups switches to one.
+      const folder = (await sendFromPanel({ type: 'moveToNewFolder', tabIds: [ex] }))?.result;
+      made.push(folder);
+      await eventually(() => panel.$eval(`#tab-${folder}`, (el) => el.classList.contains('folder')).catch(() => null), true, 'the folder\'s row');
+      await panel.click('#more');
+      await panel.click('#menu button::-p-text(Folders and groups)');
+      await panel.click('#menu button::-p-text(Folder)');
+      await eventually(() => isActive(folder), true, 'the menu of folders and groups switches to the folder');
+      // The settings page lists the keyboard shortcuts, those with keys first. Its categories show one at a time; the
+      // arrow keys move between them; a choice is saved and drawn in its example; a reload keeps the category.
+      const options = collectErrors(await browser.newPage(), 'settings page');
+      try {
+        await options.goto(`chrome-extension://${extensionId}/options.html`);
+        await options.waitForSelector('#shortcuts li', { timeout: 10000 });
+        const shortcuts = await options.$$eval('#shortcuts li', (els) => els.length);
+        assert.ok(shortcuts >= 12, `the settings page lists the shortcuts (${shortcuts})`);
+        const unset = await options.$$eval('#shortcuts kbd', (els) => els.map((el) => el.classList.contains('unset')));
+        assert.ok(unset.every((none, i) => none || !unset.slice(0, i).some(Boolean)), `the shortcuts with keys first (${unset})`);
+        const shown = () => options.$$eval('[role="tabpanel"]', (els) => els.filter((el) => !el.hidden).map((el) => el.id));
+        await eventually(shown, ['panel-groups'], 'the first category alone');
+        await options.click('#tab-new-tabs');
+        await eventually(shown, ['panel-new-tabs'], 'New tabs alone');
+        assert.equal(new URL(options.url()).hash, '#new-tabs', 'the category in the address');
+        await options.keyboard.press('ArrowDown');
+        await eventually(shown, ['panel-closing'], 'the arrow key: the next category');
+        assert.equal(await options.evaluate(() => document.activeElement?.id), 'tab-closing', 'the focus on its tab');
+        await options.click('#tab-new-tabs');
+        await options.click('input[name="newTabPlacement"][value="child"]');
+        await eventually(async () => (await inWorker(() => chrome.storage.local.get('settings'))).settings?.newTabPlacement, 'child', 'the choice saved');
+        await eventually(() => options.$eval('[data-example="newTabPlacement"] .ex-row.added', (el) => [el.querySelector('.ex-title').textContent, el.style.getPropertyValue('--d')]).catch(() => null),
+          ['New tab', '2'], 'its example: the new tab under the current one');
+        await options.reload();
+        await options.waitForSelector('#panel-new-tabs:not([hidden])', { timeout: 10000 });
+        assert.equal(await options.$eval('input[name="newTabPlacement"]:checked', (el) => el.value), 'child', 'the choice shown after a reload');
+      } finally {
+        await options.close();
+      }
+    } finally {
+      await setSettings({});
+      await setFilter('').catch(() => {});
+      await inWorker((ids) => chrome.tabs.remove(ids.filter((i) => i != null)).catch(() => {}), made);
+      await closeTabs(/^Ex(u|\.\d)?$/);
+    }
+  });
+
   await step('a window that closes and comes back gets its tree back: at once, or later on', async () => {
     // Cw opened Cw.1 and Cw.2, and Cw.1 opened Cw.1.1, in a window of their own. The window closes, and comes back: the
     // browser makes it anew, with new tabs (History, Ctrl+Shift+T, or reopening the browser that kept running in the
@@ -2041,8 +2609,33 @@ try {
       await sleep(7000); // the snapshot lets it go (WINDOW_CLOSE_HOLD_MS, then a save): it is kept as a closed window
       win = await comeBack();
       await eventually(parentsOf, want, 'back later on, with its tree');
+      // Closed again at once, before a snapshot has it: it is kept all the same.
+      await inWorker((w) => chrome.windows.remove(w), win);
+      await sleep(7000);
+      win = await comeBack();
+      await eventually(parentsOf, want, 'closed again at once, then back later on, with its tree');
+      // Back 4.5 s after it closed, once a snapshot has it: the save held back while a window closes comes while the tabs
+      // that came back are being matched, and leaves them to it.
+      await sleep(SNAPSHOT_SETTLE_MS);
+      await handled();
+      await inWorker((w) => chrome.windows.remove(w), win);
+      await sleep(4500);
+      win = await comeBack();
+      await eventually(parentsOf, want, 'back 4.5 s after it closed, with its tree');
+      // The window first, its pages a moment later (as when the browser fills a window it opened with its saved session).
+      await inWorker((w) => chrome.windows.remove(w), win);
+      await sleep(7000);
+      win = await inWorker(async () => (await chrome.windows.create({})).id);
+      await sleep(1500);
+      await inWorker(async (w, u) => {
+        for (const url of u) await chrome.tabs.create({ windowId: w, url, active: false });
+      }, win, urls);
+      await eventually(parentsOf, want, 'its pages a moment after the window, with its tree');
     } finally {
       await inWorker((w) => chrome.windows.remove(w).catch(() => {}), win);
+      // A closing window holds the snapshot back (WINDOW_CLOSE_HOLD_MS, then a save): the next step's changes are only
+      // in it after that.
+      await sleep(6500);
     }
   });
 
@@ -2060,6 +2653,19 @@ try {
     await sendFromPanel({ type: 'setGroupName', tabId: kept, name: 'Kept name' });
     await sendFromPanel({ type: 'setNoGroup', tabId: kept, noGroup: true });
     if (GROUPS !== 'off') await eventually(() => groupOfTab(kept), null, 'Kept\'s tree out of the groups');
+    // A folder, which the browser closes (Chrome) or shows its New Tab page in (Edge) as the extension reloads: it comes
+    // back where it was, with its name, and Fk's tree in it.
+    const folderBase = `chrome-extension://${extensionId}/folder.html`;
+    const [fk] = await treeOfTwo('Fk');
+    const kf = (await sendFromPanel({ type: 'moveToNewFolder', tabIds: [fk] }))?.result;
+    assert.ok(kf != null, 'a folder for Fk');
+    await sendFromPanel({ type: 'renameFolder', tabId: kf, name: 'Kept folder' });
+    const folderNow = async () => {
+      const tabs = await allTabs();
+      const tab = tabs.find((t) => (t.url || '').startsWith(folderBase) && new URL(t.url).searchParams.get('name') === 'Kept folder');
+      return tab ? { id: tab.id, title: tab.title, parent: (await storedNodes())[tab.id]?.parent ?? null } : null;
+    };
+    await eventually(async () => (await folderNow())?.title, 'Kept folder', 'the folder named');
     const colorsBefore = await storedColors();
     await sleep(SNAPSHOT_SETTLE_MS);
     const groupsBefore = await settledGroups();
@@ -2077,7 +2683,15 @@ try {
       const node = (await storedNodes())[kept];
       return [node?.groupName, node?.noGroup, await groupOfTab(kept)];
     }, ['Kept name', true, null], 'Kept\'s name and opt-out after the reload');
-    await closeTabs(/^Kept(\.|$)/);
+    await eventually(async () => {
+      const now = await folderNow();
+      return now && [now.title, now.parent, (await storedNodes())[fk]?.parent === now.id];
+    }, ['Kept folder', null, true], 'the folder back after the reload, with Fk\'s tree in it');
+    await inWorker(async (base) => {
+      const ids = (await chrome.tabs.query({})).filter((t) => (t.url || '').startsWith(base)).map((t) => t.id);
+      if (ids.length) await chrome.tabs.remove(ids);
+    }, folderBase);
+    await closeTabs(/^(Kept|Fk)(\.|$)/);
   });
 
   await step('collapsing and expanding reach the snapshot; reloaded from one older than an expansion, the active tab shows', async () => {
@@ -2192,6 +2806,15 @@ try {
     tree: (await chrome.storage.session.get('tree')).tree ?? '(none)',
     snapshot: (await chrome.storage.local.get('snapshot')).snapshot?.windows.map((w) => w.tabs),
   }, null, 1)).catch((e) => `(unavailable: ${e.message})`));
+  // Whether the panel could draw then: it draws in animation frames, which a hidden page does not get.
+  console.error('\nThe panel at the time:', await panel?.evaluate(() => new Promise((resolve) => {
+    const state = { visibility: document.visibilityState, focused: document.hasFocus(), rows: document.querySelectorAll('#tree > *').length };
+    const timer = setTimeout(() => resolve({ ...state, frame: 'none within 2 s' }), 2000);
+    requestAnimationFrame(() => {
+      clearTimeout(timer);
+      resolve({ ...state, frame: 'drawn' });
+    });
+  })).catch((e) => `(unavailable: ${e.message})`));
   if (loggedErrors.length) console.error('\nErrors the extension logged:', loggedErrors);
   process.exitCode = 1;
 } finally {

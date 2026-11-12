@@ -243,6 +243,13 @@ test('a window that closed while the browser ran on is kept, and a window that c
   assert.deepEqual(goneWindows([one, flat, two], [{ tabs: [{ id: 6, url: 'https://c.test/p' }] }]), [one]);
   // After a restart that numbered the tabs anew, a window back under new ids is not gone: most of its pages are open.
   assert.deepEqual(goneWindows([one], [{ tabs: [{ id: 51, url: 'https://c.test/a' }, { id: 52, url: 'https://c.test/a1' }] }]), []);
+  // But a window that shares a page or two with an open window that is not it is gone: a small one whose top page is
+  // open in a bigger window too, and one with two of its three pages open again in a bigger window.
+  const open = (pages, from) => ({ tabs: pages.map((page, i) => ({ id: from + i, url: `https://c.test/${page}` })) });
+  const small = { tabs: [tab(70, 'a'), tab(71, 'x', 70)] };
+  assert.deepEqual(goneWindows([small], [open(['a', 'a1', 'b'], 1001)]), [small]);
+  const pq = { tabs: [tab(80, 'p'), tab(81, 'p1', 80), tab(82, 'q')] };
+  assert.deepEqual(goneWindows([pq], [open(['c', 'c1', 'd', 'p', 'p1'], 90)]), [pq]);
   // Kept the newest first, MAX_CLOSED_WINDOWS at most.
   let closed = [];
   for (let i = 0; i < 12; i++) closed = addClosedWindows(closed, [{ tabs: [tab(100 + i, `w${i}`), tab(200 + i, `v${i}`, 100 + i)] }], i);

@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Folder</title>
+  <link id="favicon" rel="icon" href="data:,">
+  <script src="look.js"></script>
+  <link rel="stylesheet" href="folder.css">
+  <script type="module" src="folder.js"></script>
+</head>
+<body>
+  <main class="folder">
+    <header class="head">
+      <button id="icon" class="icon" type="button" title="Change the icon" aria-label="Change the icon" aria-expanded="false"
+        aria-controls="icons"></button>
+      <input id="name" class="name" type="text" maxlength="100" spellcheck="false" autocomplete="off" dir="auto"
+        aria-label="Folder name" title="Type a name: Enter keeps it, Esc puts the last one back">
+    </header>
+    <div id="icons" class="icons" hidden>
+      <div id="icon-grid" class="grid" role="group" aria-label="Icons"></div>
+      <label class="own">Or any emoji <input id="own-icon" type="text" maxlength="16" autocomplete="off" aria-label="An emoji of your own"></label>
+    </div>
+    <section class="list">
+      <div class="list-head">
+        <h2>In this folder</h2>
+        <button id="new-tab" class="button" type="button">New tab in this folder</button>
+      </div>
+      <ul id="tabs" class="tabs" aria-label="Tabs in this folder"></ul>
+      <p id="empty" class="empty" hidden>No tabs yet. In the side panel, drag tabs onto this folder, or right-click a tab and
+        choose “Move to folder”.</p>
+    </section>
+  </main>
+</body>
+</html>

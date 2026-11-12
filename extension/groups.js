@@ -29,20 +29,63 @@
 import {
   buildForest, colorOf, displayOrder, handOnFirstLink, NEW_TREE_COLORS, rememberColor, subtree, TREE_COLORS,
 } from './tree.js';
+import { FOLDER_PAGE, parseFolder, wholePrefix } from './folders.js';
+
+// The page of a folder of this extension's (see folders.js): chrome-extension://<its id>/folder.html.
+const FOLDER_URL = new RegExp(`^chrome-extension://[a-p]{32}/${FOLDER_PAGE.replace('.', '\\.')}(?=[?#]|$)`);
 
 /** chrome.tabGroups.TAB_GROUP_ID_NONE: the groupId of a tab in no group. */
 export const NO_GROUP = -1;
 
-export const DEFAULT_SETTINGS = Object.freeze({ groups: 'trees', ownGroups: 'leave' });
-const MODES = ['trees', 'innermost', 'pages', 'branches', 'off'];
-const POLICIES = ['leave', 'regroup'];
+/**
+ * Each setting's choices, the default first: the tab groups (see groups.js), and how the panel looks (`theme`: the
+ * browser's, or light or dark whatever it is; `density`: the rows' height; `textSize`; `indent`: the most a level
+ * indents, less when the tree gets deep).
+ */
+export const SETTING_CHOICES = Object.freeze({
+  groups: ['trees', 'innermost', 'pages', 'branches', 'off'],
+  ownGroups: ['leave', 'regroup'],
+  theme: ['system', 'light', 'dark'],
+  density: ['normal', 'compact', 'roomy'],
+  textSize: ['normal', 'small', 'large'],
+  indent: ['normal', 'narrow', 'wide'],
+  // How many tabs closing at once asks first (Close tree, Close children, Close group, the selected tabs, Ctrl+×).
+  confirmClose: ['5', '2', '10', 'never'],
+  // A tab with tabs under it closes: they move up a level into its place, or the first of them takes its place and the
+  // others go under that one.
+  closeParent: ['up', 'promote'],
+  // The active tab closes: the browser picks the next one, or the tree does (see nextAfterClose in background.js).
+  afterClose: ['browser', 'tree'],
+  // Where a tab opened from a link goes among its page's tabs: where the browser puts it, first or last.
+  linkPlacement: ['browser', 'first', 'last'],
+  // Where a New Tab page (Ctrl+T, the tab strip's +) and a tab opened from a bookmark go, by the active tab: where the
+  // browser puts them (at the top level), after its tree, next to it (after the tabs under it), or under it (last).
+  newTabPlacement: ['browser', 'afterTree', 'sibling', 'child'],
+  bookmarkPlacement: ['browser', 'afterTree', 'sibling', 'child'],
+  // Whether a tab opened from a bookmark in the background becomes the active tab.
+  bookmarkActive: ['no', 'yes'],
+  // A drop onto the middle of a tab: as its last child, or its first.
+  dropInto: ['last', 'first'],
+  // The panel's New tab button (and a middle-click or double-click below the list): a tab at the end of the window, or
+  // after the active tab's tree; or no button.
+  newTabButton: ['end', 'afterTree', 'hidden'],
+  // A click on the row of the active tab, if it has tabs under it, collapses or expands them; or a double-click on any
+  // row that has; or neither.
+  clickToFold: ['off', 'click', 'double'],
+  // A tab moved in the tab strip (not by the extension): keeps its place in the tree, or takes the place of the tab now
+  // after it (the tabs under it stay where it was).
+  stripMoves: ['keep', 'follow'],
+  // A tab opened in the background, not looked at yet: a dot by its icon, its title in bold, or nothing to tell.
+  unread: ['dot', 'bold', 'off'],
+  // The search box at the top of the panel: shown, or hidden until Ctrl+F (or /) in the panel.
+  searchBox: ['show', 'hide'],
+});
+export const DEFAULT_SETTINGS = Object.freeze(Object.fromEntries(Object.entries(SETTING_CHOICES).map(([key, [first]]) => [key, first])));
 
-/** The settings as stored (chrome.storage.local `settings`), with defaults for what is missing. */
+/** The settings as stored (chrome.storage.local `settings`), with defaults for what is missing or unknown. */
 export function readSettings(stored) {
-  return {
-    groups: MODES.includes(stored?.groups) ? stored.groups : DEFAULT_SETTINGS.groups,
-    ownGroups: POLICIES.includes(stored?.ownGroups) ? stored.ownGroups : DEFAULT_SETTINGS.ownGroups,
-  };
+  return Object.fromEntries(Object.entries(SETTING_CHOICES)
+    .map(([key, choices]) => [key, choices.includes(stored?.[key]) ? stored[key] : DEFAULT_SETTINGS[key]]));
 }
 
 const isColor = (color) => TREE_COLORS.includes(color);
@@ -209,6 +252,9 @@ export const MAX_NAME = 60;
  */
 export function autoName(tab) {
   const url = tab?.url || tab?.pendingUrl || '';
+  // A folder (see folders.js): its name, whole, whether its page has loaded or not.
+  const page = FOLDER_URL.exec(url)?.[0];
+  if (page) return clip(parseFolder(url, page).name);
   const host = hostOf(url);
   const title = oneLine(tab?.title);
   if (!title || title === url || /^[a-z][\w+.-]*:\/\//i.test(title)) return clip(host);
@@ -233,7 +279,7 @@ function hostOf(url) {
 
 function clip(text) {
   if (text.length <= MAX_NAME) return text;
-  const cut = text.slice(0, MAX_NAME - 1);
+  const cut = wholePrefix(text, MAX_NAME - 1); // not in the middle of an emoji
   const space = cut.lastIndexOf(' ');
   return `${(space > MAX_NAME / 2 ? cut.slice(0, space) : cut).trimEnd()}…`;
 }

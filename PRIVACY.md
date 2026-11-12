@@ -2,7 +2,7 @@
 
 Vertical Tree Tabs, a browser extension for Chrome and Microsoft Edge.
 
-Effective: 11 November 2026.
+Effective: 12 November 2026 (version 0.2.0).
 
 ## In short
 
@@ -19,7 +19,8 @@ extension reads, while it runs:
 
 - the titles, addresses (URLs) and site icons of your open tabs (the `tabs` and `favicon`
   permissions);
-- which tab a link was opened from (the `webNavigation` permission);
+- which tab a link was opened from, and whether a new tab was opened from a bookmark (the
+  `webNavigation` permission);
 - your tab groups: their names, colours, whether they are collapsed, and which tabs are in them
   (the `tabGroups` permission).
 
@@ -30,9 +31,13 @@ It does not read the content of the pages you visit, and has no access to them.
 In the browser's memory while it runs (`chrome.storage.session`), gone when the browser closes or
 the extension is reloaded or updated:
 
-- the tree: which tab is under which, which trees are collapsed, the trees' colours, and the names
-  you gave their tab groups;
-- the name, colour and collapsed state of each tab group.
+- the tree: which tab is under which, which trees are collapsed, the trees' colours, the names
+  you gave their tab groups, and which tabs are unread (opened in the background, not looked at
+  yet);
+- the name, colour and collapsed state of each tab group;
+- the current tab of each window;
+- the addresses of the last 30 tabs you closed in normal windows, each for half an hour, so that
+  one you reopen goes back under the tab it was under.
 
 In your browser profile, on your device (`chrome.storage.local`):
 
@@ -44,7 +49,10 @@ In your browser profile, on your device (`chrome.storage.local`):
 - the same for up to ten windows you closed while the browser kept running, so that one you
   reopen gets its tree back; the oldest is dropped as others close, and one is dropped once it is
   back;
-- your settings.
+- your settings, and the colours you chose for the panel.
+
+A folder you make is a tab of its own, showing the extension's folder page; its name and icon are
+in that tab's address, which the browser keeps with your other tabs.
 
 None of it is synced to your other devices.
 

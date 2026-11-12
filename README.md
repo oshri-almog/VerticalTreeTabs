@@ -21,18 +21,32 @@ Each tree is also a tab group in the tab strip, in the tree's colour (see [Tab g
 - **Native tab groups** that mirror the trees, named after their top page, at the level you pick:
   one group per tree, per innermost subtree, per page or per branch, or none
   ([Tab groups](#tab-groups)).
+- **Folders**: named tabs with an icon that hold the tabs you put in them, as a tree's top; make
+  one from a tab's menu or with **Alt+B**, drop tabs into it, and open its tab to see and rename
+  it ([Folders](#folders)).
 - **Collapse and expand** trees; a collapsed tree shows how many tabs it hides, and collapses its
   tab group too.
 - **Drag and drop** a tab with its subtree to rearrange it, nest it, or move it to another
-  window; the real tabs move with it.
-- **A right-click menu** for each tab: new tab as child, reload, duplicate, pin, mute, the group's
-  name and colour, ungroup or group in the tab strip, collapse or expand, move to the top level or
-  to a new window, close children, close the tree, close the tab.
-- **Search** by title or address that keeps each match's parents in view, and **keyboard**
-  control of the whole tree ([Using the panel](#using-the-panel)).
-- **Pinned tabs** as icons above the tree; a **speaker** on tabs that play sound, to mute or
-  unmute them.
-- **Light and dark** themes, following the browser.
+  window; the real tabs move with it. Hold **Ctrl** as you start to drag a tab alone.
+- **Select several tabs** with Ctrl+click and Shift+click (the tab strip selects them too), then
+  move, close, group, pin or reload them together ([Selecting tabs](#selecting-tabs)).
+- **A right-click menu** for each tab: new tabs as a child or next to it, folders, reload,
+  duplicate, pin, mute, the group's name and colour, your own groups, collapse or expand, move to
+  the top level, to a folder or to another window, close children, the tree or the group.
+- **Where new tabs go, and what happens when tabs close**, as you choose: New Tab pages, links
+  and bookmarks by the current tab; a closed tab's first child in its place; the tree picking the
+  next tab; a closed tab you reopen back under its parent ([Settings](#settings)).
+- **Find a tab in any window** with **Alt+G**, and **search** the panel by words or a regular
+  expression, which keeps each match's parents in view; **keyboard** control of the whole tree
+  ([Using the panel](#using-the-panel)).
+- **Your own tab groups** show in the panel, with their colour and name, and the menu makes,
+  renames, recolours, moves and closes them.
+- **Pinned tabs** as icons above the tree, which you can drag to reorder; a **speaker** on tabs
+  that play sound, to mute or unmute them; a dot on **unread** tabs, opened in the background and
+  not looked at yet.
+- **Light and dark** themes, following the browser or as you choose, with compact or roomy rows,
+  three text sizes and indents, and **your own colours**.
+- **Keyboard shortcuts** for the tree, from anywhere in the browser ([Keyboard shortcuts](#keyboard-shortcuts)).
 - **Kept across restarts and closed windows**: the tree, its colours, collapsed trees and group
   names come back after the extension reloads, the browser restarts, or a window you closed is
   reopened ([What is kept, and where](#what-is-kept-and-where)).
@@ -59,7 +73,7 @@ Chrome 116 or later, or Microsoft Edge (tested with Edge 156 and 157).
 4. **Put it in the toolbar** (Chrome: the puzzle-piece icon → pin; Edge: the Extensions button →
    the eye icon, **Show in toolbar**), then click its icon, or press **Alt+T**, to open the panel.
    To change the shortcut, go to `chrome://extensions/shortcuts` (Edge:
-   `edge://extensions/shortcuts`), or use **⋯ → Keyboard shortcut…** in the panel.
+   `edge://extensions/shortcuts`), or use **⋯ → Keyboard shortcuts…** in the panel (see [Keyboard shortcuts](#keyboard-shortcuts)).
 5. Loading it unpacked asks for nothing; its **Details** page lists what it may do: "Read your
    browsing history" and "View and manage your tab groups". See [Permissions](#permissions) for
    why.
@@ -186,17 +200,95 @@ Settings (⋯ menu → Settings…):
 | Collapse or expand a tree | Click the arrow. A collapsed tree shows how many tabs it hides; collapsing the tree you are in moves you to its top tab |
 | Rearrange | Drag a tab with its subtree. Drop on the top quarter of a tab to go before it, on its middle to become its last child, on its bottom quarter to go after it and the tabs under it (or, if its children are showing, to become its first child), or below the list to go to the end, at the top level. Drag to another window's panel to move it there |
 | Use a tab's link elsewhere | Drag its row out of the panel, onto the bookmarks bar, say |
+| Move a tab without its children | Hold Ctrl (⌘ on a Mac) as you start dragging it: the tabs under it stay where they were |
+| Close a tab with the tabs under it | Ctrl+click its ×, or right-click → Close tree |
 | Change a tree's colour | Right-click a tab in it and click a colour |
 | Rename a tree's tab group | Right-click a tab in it and type in the name field |
 | Mute or unmute a tab | Click the speaker on its row (it shows while the tab plays sound, crossed out while muted) |
-| Everything else | Right-click: New tab as child, Reload, Duplicate, Pin, Mute, group name, tree colour, Ungroup/Group in tab strip, Collapse/Expand tree, Move to top level, Move tree to new window, Close children, Close tree, Close tab |
-| Use a pinned tab | Click its icon above the tree to switch to it, middle-click to close it; right-click for Reload, Duplicate, Unpin, Mute, Move to new window, Close tab |
+| Everything else | Right-click: New tab as child or below, Reload, Duplicate, Pin, Mute, New folder, Move to new folder or to a folder, group name, tree colour, Ungroup/Group in tab strip, your own groups, Collapse/Expand tree, Move to top level, Move tree to new window or to another window, Close children, Close tree, Close group, Close tab. Items with › open a list of their own; ‹ Back returns |
+| Use a pinned tab | Click its icon above the tree to switch to it, middle-click to close it, drag it onto another to reorder them; right-click for Reload, Duplicate, Unpin, Mute, Move to new window, Close tab |
 | Collapse or expand all | ⋯ menu at the top |
+| Go to a folder or a tab group | ⋯ menu at the top → Folders and groups… |
 | Change the settings | ⋯ menu at the top → Settings… |
-| Change the keyboard shortcut | ⋯ menu at the top → Keyboard shortcut… |
-| Find a tab | Type in the search box: tabs whose title or address match show with their parents, in collapsed trees too (pinned tabs aren't searched). ↓ moves to the results, Enter switches to the first match, Esc clears. While you search, the tabs can't be dragged |
-| Use the keyboard | ↑ ↓ move, Home and End go to the first and last tab, ← → collapse/expand or go to the parent/child, Enter or Space switches, Delete closes, the Menu key opens the right-click menu. In that menu: ↑ ↓ Home End move, ← → move among the colours, Esc closes |
-| Open a tab | **New tab** under the list, or double-click the empty space |
+| Change the keyboard shortcuts | ⋯ menu at the top → Keyboard shortcuts… |
+| Find a tab | Type in the search box: tabs whose title, address or group name has every word show with their parents, in collapsed trees too (pinned tabs aren't searched); a tab that only its address matched shows its address. Click **.\*** to search by a regular expression instead. ↓ moves to the results, Enter switches to the first match, Esc clears. While you search, the tabs can't be dragged. To find a tab in any window, use the button beside the search box, or Alt+G |
+| Use the keyboard | ↑ ↓ move, Home and End go to the first and last tab, ← → collapse/expand or go to the parent/child, Enter or Space switches, Delete closes, the Menu key opens the right-click menu, Esc ends a selection, Ctrl+F (or /) goes to the search box. In that menu: ↑ ↓ Home End move, ← → move among the colours and icons, → opens a › list and ← goes back, Esc closes |
+| Open a tab | **New tab** under the list, or double-click or middle-click the empty space: with Shift held, as the current tab's first child; with Ctrl, as its last child; with Alt, next to it |
+
+### Selecting tabs
+
+Ctrl+click (⌘ on a Mac) a tab to add it to the selection or take it out, and Shift+click to select
+the tabs from the one you clicked last to this one, as the panel shows them. The tab strip selects
+them too, and the current tab is always one of them. A plain click or Esc ends the selection.
+
+Right-click a selected tab for the menu of the selection: reload, duplicate, pin, mute, put them
+in a new tab group or one of yours, move them to a new folder, a folder or another window, close
+them. Drag a selected tab to move them all, each with the tabs under it. Closing several tabs at
+once (5 or more, as the settings say) asks first.
+
+## Folders
+
+A folder is a tab of its own, showing the extension's folder page: its name, an icon, and the
+tabs under it in the tree, which you can switch to or close from there. In the panel it is a row
+in bold with its icon, and the tabs you put in it sit under it, as under any tab: collapse it,
+drag it, move it to another window, give its tree a colour, and its tree's tab group takes its
+name.
+
+- **Make one**: right-click a tab → **Move to new folder** puts the tab, with the tabs under it,
+  in a new folder where it was; select several tabs first to put them all in it. **Alt+B** does
+  the same for the current tab or the tabs selected in the tab strip. **New folder** (in a tab's
+  menu, or the ⋯ menu) makes an empty one, ready to be named.
+- **Put tabs in it**: drag them onto it, or right-click → **Move to folder ›**.
+- **New tab in it**: the **+** on its row (with Ctrl, as its first tab), or the button on its page.
+- **Name it and pick its icon**: in its right-click menu, or on its page (any emoji will do).
+- **Close it**: its tabs move up a level and stay open. **Close tree** closes it with them.
+
+The folder's name and icon are kept in its tab's address, so the browser brings it back with the
+rest of your tabs; after an extension update the extension brings back any folder the browser
+closed. Folders can't be made in incognito windows.
+
+## Keyboard shortcuts
+
+Set or change them at **chrome://extensions/shortcuts** (Edge: edge://extensions/shortcuts), or
+from the panel's ⋯ menu → Keyboard shortcuts…. The settings page lists them as they are set.
+
+| Shortcut | Does |
+| --- | --- |
+| Alt+T | Open the panel |
+| Alt+G | Find a tab in any window |
+| Alt+B | Move the current tab (or the selected tabs) into a new folder |
+| Alt+A | A new tab next to the current tab, after the tabs under it |
+| (not set) | New tab as child; collapse or expand the current tree; collapse all; expand all; move the current tab to the top level; move its tree to a new window; close its tree; duplicate it |
+
+## Settings
+
+The ⋯ menu → **Settings…** opens them in a tab, one category at a time. Each setting says what it
+does, the choices that move tabs around show it on a small example tree (point at a choice to see
+it there), and every change is saved at once.
+
+- **Tab groups**: how the trees are grouped in the tab strip (see [Tab groups](#tab-groups)), and
+  what happens to the groups you make yourself.
+- **New tabs**: where a New Tab page and a tab opened from a bookmark go (at the top level, as the
+  browser puts them, after the current tab's tree, next to the current tab, or under it); where a
+  tab opened from a link goes among its page's tabs (where the browser puts it, first or last);
+  whether a tab opened from a bookmark in the background becomes the current tab; and what the
+  New tab button does (a tab at the end, or after the current tab's tree, or no button).
+- **Closing tabs**: a closed tab's tabs move up a level, or the first of them takes its place;
+  when the current tab closes, the browser picks the next tab, or the tree does (its first child,
+  else the next tab at its level, else the one above it, else its parent); and from how many tabs
+  closing them at once in the panel asks first (2, 5 or 10, or never). A tab you close and reopen
+  (Ctrl+Shift+T, History) goes back under the tab it was under, for half an hour after it closed.
+- **Mouse & dragging**: a tab dropped onto another goes under it last or first; a click on the
+  current tab's row (or a double-click on any) can collapse or expand its tree; a tab you move in
+  the tab strip keeps its place in the tree, or takes the place of the tab after it.
+- **Appearance**: the theme (the browser's, light or dark), row height, text size, indent, how
+  unread tabs show (a dot, bold, or nothing), and whether the search box shows or waits for
+  Ctrl+F, with a preview of the panel.
+- **Colours**: the panel's background, text, current tab (in a gradient, if you like), hover and
+  accent, with a preview; save sets of them by name.
+- **Keyboard**: the keyboard shortcuts as they are set (**Change the keys…** opens the browser's
+  page for them), and the keys of the panel itself.
+- **Closed windows**: the windows whose trees the extension keeps, to open again or forget.
 
 **New tab as child** opens the tab as the last child and switches to it; **Duplicate** puts the
 copy right after the tab and the tabs under it; **Move to top level** puts the tab and its subtree
@@ -221,13 +313,18 @@ too, unless it would hide the active tab there.
   it comes back: from **History → Recently closed**, with **Ctrl+Shift+T**, or when you reopen
   the browser after closing its last window, if it kept running in the background (Edge does by
   default, with **Startup boost**). The browser brings the window back with new tabs, which are
-  matched by URL. The trees of the last ten windows closed this way are kept. A single tab you
-  reopen with Ctrl+Shift+T comes back at the top level.
+  matched by URL. The trees of the last ten windows closed this way are kept, and the settings
+  page lists them, to open again or forget. A single tab you reopen with Ctrl+Shift+T or from
+  History goes back under the tab it was under, if that is still open, for half an hour after it
+  closed.
+- Folders are kept by their tabs' addresses, which hold their names and icons.
 - Tree colours are kept with the tree, and so is which trees are collapsed.
 - Group names, and the trees you took out of the groups, are kept with the tree too. After a
   reload, a restart or a window's return, the trees take their groups back.
-- While the browser runs, the tree is kept in its memory (`chrome.storage.session`). The
-  snapshot, the closed windows' trees and your settings are saved in your browser profile
+- While the browser runs, the tree is kept in its memory (`chrome.storage.session`), with the
+  current tab of each window and the addresses of the last 30 tabs you closed (for half an hour,
+  to put them back under their parent if you reopen them). The snapshot, the closed windows'
+  trees, your settings and your own colours are saved in your browser profile
   (`chrome.storage.local`). They hold the addresses of your tabs, never those of incognito
   windows, and nothing of them is sent anywhere. See [PRIVACY.md](PRIVACY.md).
 
@@ -236,7 +333,7 @@ too, unless it would hide the active tab there.
 | Permission | The browser's warning | Why the extension needs it |
 | --- | --- | --- |
 | `tabs` | Read your browsing history | To show each tab's title, icon and address in the panel, to search them, to name groups after their pages, and to find tabs again by address after a restart or when a closed window comes back |
-| `webNavigation` | (part of the one above) | To learn which tab a link was opened from, which places the new tab in the tree |
+| `webNavigation` | (part of the one above) | To learn which tab a link was opened from, which places the new tab in the tree, and which new tabs were opened from a bookmark (for where those go) |
 | `favicon` | (part of the one above) | To show a site's icon from the browser's own store of them when the page's icon can't be loaded |
 | `tabGroups` | View and manage your tab groups | To make each tree a tab group, and to follow the changes you make to groups |
 | `sidePanel` | (none) | To show the tree in the browser's side panel |

@@ -130,5 +130,12 @@ export async function openPanel(browser, worker, extensionId, windowId, { width 
   const panel = await target.page();
   await panel.setViewport({ width, height });
   await panel.waitForSelector('#tree');
+  // The panel draws in animation frames, a moment after a change (later on a busy machine): a click waits for what it
+  // clicks, a row or a menu item, to be there.
+  const click = panel.click.bind(panel);
+  panel.click = async (selector, options) => {
+    await panel.waitForSelector(selector, { timeout: 10000 });
+    return click(selector, options);
+  };
   return panel;
 }

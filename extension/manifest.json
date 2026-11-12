@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Vertical Tree Tabs",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Vertical tabs in the side panel, nested as a tree under the tab each one was opened from.",
   "minimum_chrome_version": "116",
   "permissions": ["tabs", "tabGroups", "webNavigation", "sidePanel", "storage", "favicon"],
@@ -14,7 +14,7 @@
   },
   "options_ui": {
     "page": "options.html",
-    "open_in_tab": false
+    "open_in_tab": true
   },
   "action": {
     "default_title": "Show tree tabs",
@@ -33,6 +33,26 @@
     "_execute_action": {
       "suggested_key": { "default": "Alt+T" },
       "description": "Open the tree tabs side panel"
+    },
+    "find-tab": {
+      "suggested_key": { "default": "Alt+G" },
+      "description": "Find a tab in any window"
+    },
+    "toggle-tree": { "description": "Collapse or expand the current tab's tree" },
+    "collapse-all": { "description": "Collapse every tree in the window" },
+    "expand-all": { "description": "Expand every tree in the window" },
+    "new-child": { "description": "New tab as child of the current tab" },
+    "new-sibling": {
+      "suggested_key": { "default": "Alt+A" },
+      "description": "New tab next to the current tab, after the tabs under it"
+    },
+    "duplicate": { "description": "Duplicate the current tab, next to it in the tree" },
+    "top-level": { "description": "Move the current tab to the top level" },
+    "new-window": { "description": "Move the current tab's tree to a new window" },
+    "close-tree": { "description": "Close the current tab and the tabs under it" },
+    "new-folder": {
+      "suggested_key": { "default": "Alt+B" },
+      "description": "Move the current tab (or the selected tabs) into a new folder"
     }
   }
 }

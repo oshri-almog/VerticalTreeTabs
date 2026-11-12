@@ -37,12 +37,24 @@ const rssParents = { 79: null, 2: 79, 21: 2, 22: 2, 23: 2, 14: 79, 41: 14, 42: 1
 
 // ---- settings and names --------------------------------------------------------------------
 
-test('settings default to one group per tree, leaving the user\'s own groups alone', () => {
-  assert.deepEqual(readSettings(undefined), { groups: 'trees', ownGroups: 'leave' });
-  assert.deepEqual(readSettings({ groups: 'innermost', ownGroups: 'regroup' }), { groups: 'innermost', ownGroups: 'regroup' });
-  assert.deepEqual(readSettings({ groups: 'nested', ownGroups: 7 }), { groups: 'trees', ownGroups: 'leave' });
-  assert.deepEqual(readSettings({ groups: 'pages' }), { groups: 'pages', ownGroups: 'leave' });
-  assert.deepEqual(readSettings({ groups: 'branches' }), { groups: 'branches', ownGroups: 'leave' });
+test('settings default to one group per tree, leaving the user\'s own groups alone, and to the browser\'s look', () => {
+  const look = {
+    theme: 'system', density: 'normal', textSize: 'normal', indent: 'normal', confirmClose: '5', closeParent: 'up',
+    afterClose: 'browser', linkPlacement: 'browser', newTabPlacement: 'browser', bookmarkPlacement: 'browser',
+    bookmarkActive: 'no', dropInto: 'last', newTabButton: 'end', clickToFold: 'off', stripMoves: 'keep', unread: 'dot',
+    searchBox: 'show',
+  };
+  assert.deepEqual(readSettings(undefined), { groups: 'trees', ownGroups: 'leave', ...look });
+  assert.deepEqual(readSettings({ groups: 'innermost', ownGroups: 'regroup' }), { groups: 'innermost', ownGroups: 'regroup', ...look });
+  assert.deepEqual(readSettings({ groups: 'nested', ownGroups: 7 }), { groups: 'trees', ownGroups: 'leave', ...look });
+  assert.deepEqual(readSettings({ groups: 'pages' }), { groups: 'pages', ownGroups: 'leave', ...look });
+  assert.deepEqual(readSettings({ groups: 'branches' }), { groups: 'branches', ownGroups: 'leave', ...look });
+  assert.deepEqual(readSettings({ theme: 'dark', density: 'compact', textSize: 'large', indent: 'wide' }),
+    { ...look, groups: 'trees', ownGroups: 'leave', theme: 'dark', density: 'compact', textSize: 'large', indent: 'wide' });
+  // How many tabs closing at once asks first.
+  for (const confirmClose of ['2', '10', 'never']) assert.equal(readSettings({ confirmClose }).confirmClose, confirmClose);
+  assert.equal(readSettings({ confirmClose: '3' }).confirmClose, '5', 'not one of the choices: the default');
+  assert.deepEqual(readSettings({ theme: 'sepia', density: 3, textSize: null, indent: 'deep' }), { groups: 'trees', ownGroups: 'leave', ...look });
 });
 
 test('a group is named after the gist of its head page\'s title', () => {

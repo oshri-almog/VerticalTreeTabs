@@ -4,64 +4,599 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Vertical Tree Tabs settings</title>
+  <script src="look.js"></script>
   <link rel="stylesheet" href="options.css">
   <script type="module" src="options.js"></script>
 </head>
 <body>
-  <form id="settings">
-    <fieldset>
-      <legend>Tab groups in the tab strip</legend>
-      <label>
-        <input type="radio" name="groups" value="trees">
-        <span><strong>One group per tree</strong>
-          The top tab and every tab under it share a tab group, in the tree's colour, named after the top tab's page.</span>
-      </label>
-      <label>
-        <input type="radio" name="groups" value="innermost">
-        <span><strong>One group per innermost subtree</strong>
-          A tab and the tabs opened from it share a group as long as none of those has tabs of its own. Each such
-          group has a colour of its own, in the panel too.</span>
-      </label>
-      <label>
-        <input type="radio" name="groups" value="pages">
-        <span><strong>One group per page</strong>
-          A tab and the tabs opened from it share a group. When one of those opens a tab, it moves out of the group,
-          right after its end, and leads a new group with the tab it opened; the group it left stays. Each group has a
-          colour of its own, in the panel too.</span>
-      </label>
-      <label>
-        <input type="radio" name="groups" value="branches">
-        <span><strong>One group per branch</strong>
-          The top tab and the tabs opened from it share a group. When one of those opens a tab, it moves out of the
-          group, right after its end, and leads a new group with that tab and everything later opened from it; each
-          further tab it opens starts another group of its own. Each group has a colour of its own, in the panel too.</span>
-      </label>
-      <label>
-        <input type="radio" name="groups" value="off">
-        <span><strong>No groups</strong>
-          The extension makes no tab groups, and ungroups the ones it made.</span>
-      </label>
-    </fieldset>
+  <header class="top">
+    <img src="icons/icon48.png" alt="" width="32" height="32">
+    <div class="titles">
+      <h1>Vertical Tree Tabs</h1>
+      <p>Settings are saved as you change them, and every window uses them at once.</p>
+    </div>
+    <p id="saved" class="saved" role="status" aria-live="polite"></p>
+  </header>
 
-    <fieldset>
-      <legend>Tab groups you made yourself</legend>
-      <label>
-        <input type="radio" name="ownGroups" value="leave">
-        <span><strong>Leave them alone</strong>
-          A tree with tabs in one of your groups gets no group from the extension. One of your groups that holds
-          exactly one tree becomes that tree's group, and keeps its name and colour.</span>
-      </label>
-      <label>
-        <input type="radio" name="ownGroups" value="regroup">
-        <span><strong>Regroup them by tree</strong>
-          The tabs of every tree go into the tree's own group, out of the groups you made.</span>
-      </label>
-    </fieldset>
-  </form>
-  <p class="note">Rename a group, or change its colour, from the right-click menu of any of its tabs in the panel, or
-    by right-clicking the group's name in the tab strip.</p>
-  <p class="note">Privacy: the tree, with your tabs' addresses and titles, stays in this browser, and the extension sends
-    nothing anywhere (it shows each tab's site icon from the address the page gives for it).
-    <a href="https://github.com/oshri-almog/VerticalTreeTabs/blob/main/PRIVACY.md" target="_blank" rel="noopener">Privacy policy</a></p>
+  <div class="layout">
+    <nav class="nav" aria-label="Settings">
+      <div id="tabs" role="tablist" aria-orientation="vertical" aria-label="Settings categories">
+        <button type="button" role="tab" id="tab-groups" aria-controls="panel-groups" data-panel="groups">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7.5" height="7.5" rx="1.8"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.8"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1.8"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.8"/></svg>
+          <span>Tab groups</span>
+        </button>
+        <button type="button" role="tab" id="tab-new-tabs" aria-controls="panel-new-tabs" data-panel="new-tabs">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="4"/><path d="M12 8v8M8 12h8"/></svg>
+          <span>New tabs</span>
+        </button>
+        <button type="button" role="tab" id="tab-closing" aria-controls="panel-closing" data-panel="closing">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="4"/><path d="M9 9l6 6M15 9l-6 6"/></svg>
+          <span>Closing tabs</span>
+        </button>
+        <button type="button" role="tab" id="tab-mouse" aria-controls="panel-mouse" data-panel="mouse">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3.5l13 6.2-5.6 1.9-1.9 5.6z"/><path d="M12.4 11.6L19 18.2"/></svg>
+          <span>Mouse &amp; dragging</span>
+        </button>
+        <button type="button" role="tab" id="tab-appearance" aria-controls="panel-appearance" data-panel="appearance">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" class="fill"/></svg>
+          <span>Appearance</span>
+        </button>
+        <button type="button" role="tab" id="tab-colours" aria-controls="panel-colours" data-panel="colours">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5s6.5 6.6 6.5 11a6.5 6.5 0 0 1-13 0c0-4.4 6.5-11 6.5-11z"/></svg>
+          <span>Colours</span>
+        </button>
+        <button type="button" role="tab" id="tab-keyboard" aria-controls="panel-keyboard" data-panel="keyboard">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="6" width="19" height="12" rx="2.5"/><path d="M6.5 10h1M10.5 10h1M14.5 10h1M8 14h8"/></svg>
+          <span>Keyboard</span>
+        </button>
+        <button type="button" role="tab" id="tab-closed-windows" aria-controls="panel-closed-windows" data-panel="closed-windows">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 1 0 2.4-5.7L4 8.6"/><path d="M4 4v4.6h4.6"/><path d="M12 8v4.2l2.8 1.8"/></svg>
+          <span>Closed windows</span>
+        </button>
+        <button type="button" role="tab" id="tab-about" aria-controls="panel-about" data-panel="about">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.5M12 7.6v.1"/></svg>
+          <span>About</span>
+        </button>
+      </div>
+    </nav>
+
+    <main>
+      <form id="settings" autocomplete="off">
+
+        <!-- ================================ Tab groups ================================ -->
+        <section class="panel" id="panel-groups" role="tabpanel" aria-labelledby="tab-groups" tabindex="0" hidden>
+          <h2>Tab groups</h2>
+          <p class="intro">Your trees can also show in the browser's tab strip as tab groups: coloured, named after a
+            tab's page, and collapsed when you collapse the tree in the panel.</p>
+
+          <fieldset class="setting" data-example="groups">
+            <legend>Group the tabs of a tree in the tab strip</legend>
+            <p class="help">A group that starts below a tree's top tab has a colour of its own, in the panel too. Point at a
+              choice to see it on the example.</p>
+            <div class="setting-body">
+              <div class="options">
+                <label class="option">
+                  <input type="radio" name="groups" value="trees">
+                  <span><strong>One group per tree</strong>
+                    <span>A top-level tab and every tab under it share one group, in the tree's colour.</span></span>
+                </label>
+                <label class="option">
+                  <input type="radio" name="groups" value="innermost">
+                  <span><strong>Only the innermost tabs</strong>
+                    <span>A tab and the tabs it opened share a group, as long as none of those opened tabs of its own.
+                      The rest of the tree stays out of groups.</span></span>
+                </label>
+                <label class="option">
+                  <input type="radio" name="groups" value="pages">
+                  <span><strong>One group per page</strong>
+                    <span>Each tab that opened tabs shares a group with them. When one of those opens a tab, it leaves
+                      the group (to just after it) and starts a new group with the tab it opened.</span></span>
+                </label>
+                <label class="option">
+                  <input type="radio" name="groups" value="branches">
+                  <span><strong>One group per branch</strong>
+                    <span>The top tab shares a group with the tabs it opened. When one of those opens a tab, it leaves
+                      the group and starts a new one with that tab and everything opened from it later; each further
+                      tab it opens gets a group of its own.</span></span>
+                </label>
+                <label class="option">
+                  <input type="radio" name="groups" value="off">
+                  <span><strong>No groups</strong>
+                    <span>The extension makes no tab groups, and removes the ones it made. Your tabs stay open.</span></span>
+                </label>
+              </div>
+              <figure class="example" aria-hidden="true">
+                <figcaption>Example</figcaption>
+                <div class="example-body"></div>
+                <p class="example-note">A bar on the left marks the tabs of one tab group.</p>
+              </figure>
+            </div>
+          </fieldset>
+
+          <fieldset class="setting">
+            <legend>Tab groups you make yourself</legend>
+            <p class="help">Groups you make in the tab strip (right-click a tab → Add tab to group), or from the panel.</p>
+            <div class="options">
+              <label class="option">
+                <input type="radio" name="ownGroups" value="leave">
+                <span><strong>Leave them alone</strong>
+                  <span>Tabs the extension would group together (a whole tree, with One group per tree) get no group
+                    from it while one of them is in a group of yours. A group of yours that holds exactly such tabs
+                    becomes the extension's group for them, and keeps its name and colour.</span></span>
+              </label>
+              <label class="option">
+                <input type="radio" name="ownGroups" value="regroup">
+                <span><strong>Regroup them by tree</strong>
+                  <span>The tabs the extension groups go out of your groups and into its own, as chosen above.</span></span>
+              </label>
+            </div>
+          </fieldset>
+
+          <p class="tip">Rename a group, or change its colour, from the right-click menu of any of its tabs in the panel,
+            or by right-clicking the group's name in the tab strip.</p>
+        </section>
+
+        <!-- ================================ New tabs ================================ -->
+        <section class="panel" id="panel-new-tabs" role="tabpanel" aria-labelledby="tab-new-tabs" tabindex="0" hidden>
+          <h2>New tabs</h2>
+          <p class="intro">Where a new tab goes in the tree. “The current tab” is the one you were on when you opened it.</p>
+
+          <fieldset class="setting" data-example="newTabPlacement">
+            <legend>A New Tab page (Ctrl+T, or + in the tab strip)</legend>
+            <p class="help">No page opened it, so you choose where it goes.</p>
+            <div class="setting-body">
+              <div class="options">
+                <label class="option">
+                  <input type="radio" name="newTabPlacement" value="browser">
+                  <span><strong>At the end, on its own</strong>
+                    <span>Where the browser puts it: at the end of the tab strip, at the top level.</span></span>
+                </label>
+                <label class="option">
+                  <input type="radio" name="newTabPlacement" value="afterTree">
+                  <span><strong>After the current tree</strong>
+                    <span>At the top level, right after the tree the current tab is in.</span></span>
+                </label>
+                <label class="option">
+                  <input type="radio" name="newTabPlacement" value="sibling">
+                  <span><strong>Next to the current tab</strong>
+                    <span>At the current tab's level, after the tabs under it.</span></span>
+                </label>
+                <label class="option">
+                  <input type="radio" name="newTabPlacement" value="child">
+                  <span><strong>Under the current tab</strong>
+                    <span>The last of the tabs under the current tab.</span></span>
+                </label>
+              </div>
+              <figure class="example" aria-hidden="true">
+                <figcaption>Example</figcaption>
+                <div class="example-body"></div>
+                <p class="example-note">Highlighted: the current tab. Dashed: where the new tab goes.</p>
+              </figure>
+            </div>
+          </fieldset>
+
+          <fieldset class="setting" data-example="linkPlacement">
+            <legend>A tab opened from a link</legend>
+            <p class="help">It goes under the page it was opened from (unless that page is a pinned tab). Choose where among
+              that page's tabs.</p>
+            <div class="setting-body">
+              <div class="options">
+                <label class="option">
+                  <input type="radio" name="linkPlacement" value="browser">
+                  <span><strong>Where the browser puts it</strong>
+                    <span>Usually after the tabs the page opened just before, or else right after the page.</span></span>
+                </label>
+                <label class="option">
+                  <input type="radio" name="linkPlacement" value="first">
+                  <span><strong>First</strong>
+                    <span>Right under the page, before the tabs it opened earlier.</span></span>
+                </label>
+                <label class="option">
+                  <input type="radio" name="linkPlacement" value="last">
+                  <span><strong>Last</strong>
+                    <span>After all the tabs under the page.</span></span>
+                </label>
+              </div>
+              <figure class="example" aria-hidden="true">
+                <figcaption>Example</figcaption>
+                <div class="example-body"></div>
+                <p class="example-note">Recipes opens a link. Dashed: where its tab goes.</p>
+              </figure>
+            </div>
+          </fieldset>
+
+          <fieldset class="setting" data-example="bookmarkPlacement">
+            <legend>A tab opened from a <span data-edge="favorite">bookmark</span></legend>
+            <p class="help">A new tab for a <span data-edge="favorite">bookmark</span>: one you middle-click or Ctrl+click,
+              say, or each of “Open all”.</p>
+            <div class="setting-body">
+              <div class="options">
+                <label class="option">
+                  <input type="radio" name="bookmarkPlacement" value="browser">
+                  <span><strong>At the end, on its own</strong>
+                    <span>Where the browser puts it: at the top level.</span></span>
+                </label>
+                <label class="option">
+                  <input type="radio" name="bookmarkPlacement" value="afterTree">
+                  <span><strong>After the current tree</strong>
+                    <span>At the top level, right after the tree the current tab is in.</span></span>
+                </label>
+                <label class="option">
+                  <input type="radio" name="bookmarkPlacement" value="sibling">
+                  <span><strong>Next to the current tab</strong>
+                    <span>At the current tab's level, after the tabs under it.</span></span>
+                </label>
+                <label class="option">
+                  <input type="radio" name="bookmarkPlacement" value="child">
+                  <span><strong>Under the current tab</strong>
+                    <span>The last of the tabs under the current tab.</span></span>
+                </label>
+              </div>
+              <figure class="example" aria-hidden="true">
+                <figcaption>Example</figcaption>
+                <div class="example-body"></div>
+                <p class="example-note">Highlighted: the current tab. Dashed: where the new tab goes.</p>
+              </figure>
+            </div>
+          </fieldset>
+
+          <fieldset class="setting">
+            <legend>Switch to a <span data-edge="favorite">bookmark</span> opened in the background</legend>
+            <p class="help">A <span data-edge="favorite">bookmark</span> you middle-click or Ctrl+click opens in the
+              background.</p>
+            <div class="segmented">
+              <label><input type="radio" name="bookmarkActive" value="no"> No, stay where I am</label>
+              <label><input type="radio" name="bookmarkActive" value="yes"> Yes, switch to it</label>
+            </div>
+          </fieldset>
+
+          <fieldset class="setting" data-example="newTabButton">
+            <legend>The New tab button in the panel</legend>
+            <p class="help">The button under the tree. A double-click or middle-click on the empty space below the tree
+              does the same.</p>
+            <div class="setting-body">
+              <div class="options">
+                <label class="option">
+                  <input type="radio" name="newTabButton" value="end">
+                  <span><strong>A tab at the end</strong>
+                    <span>At the end of the window, at the top level.</span></span>
+                </label>
+                <label class="option">
+                  <input type="radio" name="newTabButton" value="afterTree">
+                  <span><strong>A tab after the current tree</strong>
+                    <span>At the top level, right after the tree the current tab is in.</span></span>
+                </label>
+                <label class="option">
+                  <input type="radio" name="newTabButton" value="hidden">
+                  <span><strong>No button</strong>
+                    <span>The empty space below the tree still opens a tab at the end.</span></span>
+                </label>
+              </div>
+              <figure class="example" aria-hidden="true">
+                <figcaption>Example</figcaption>
+                <div class="example-body"></div>
+                <p class="example-note">Highlighted: the current tab. Dashed: where the new tab goes.</p>
+              </figure>
+            </div>
+          </fieldset>
+
+          <p class="tip">Hold a key as you click New tab, or as you double-click or middle-click the space below the tree,
+            to open the tab by the current tab: <kbd>Shift</kbd> first under it, <kbd>Ctrl</kbd> last under it, <kbd>Alt</kbd> next to it. The keyboard
+            shortcut <kbd>Alt+A</kbd> opens a tab next to the current tab from anywhere.</p>
+        </section>
+
+        <!-- ================================ Closing tabs ================================ -->
+        <section class="panel" id="panel-closing" role="tabpanel" aria-labelledby="tab-closing" tabindex="0" hidden>
+          <h2>Closing tabs</h2>
+          <p class="intro">What happens to the tree when tabs close.</p>
+
+          <fieldset class="setting" data-example="closeParent">
+            <legend>When a tab with tabs under it closes</legend>
+            <div class="setting-body">
+              <div class="options">
+                <label class="option">
+                  <input type="radio" name="closeParent" value="up">
+                  <span><strong>Its tabs move up a level</strong>
+                    <span>They take its place, each keeping the tabs under it.</span></span>
+                </label>
+                <label class="option">
+                  <input type="radio" name="closeParent" value="promote">
+                  <span><strong>Its first tab takes its place</strong>
+                    <span>The other tabs go under that first tab.</span></span>
+                </label>
+              </div>
+              <figure class="example" aria-hidden="true">
+                <figcaption>Example</figcaption>
+                <div class="example-body"></div>
+              </figure>
+            </div>
+          </fieldset>
+
+          <fieldset class="setting" data-example="afterClose">
+            <legend>When the current tab closes, switch to</legend>
+            <div class="setting-body">
+              <div class="options">
+                <label class="option">
+                  <input type="radio" name="afterClose" value="browser">
+                  <span><strong>The tab the browser picks</strong>
+                    <span>The browser's own rule: often the tab to the right, or the page the closed tab was opened
+                      from.</span></span>
+                </label>
+                <label class="option">
+                  <input type="radio" name="afterClose" value="tree">
+                  <span><strong>The next tab in the tree</strong>
+                    <span>Its first child; else the next tab at its level; else the one above it at its level; else
+                      its parent.</span></span>
+                </label>
+              </div>
+              <figure class="example" aria-hidden="true">
+                <figcaption>Example</figcaption>
+                <div class="example-body"></div>
+                <p class="example-note" data-note="browser">The browser picks the next tab by its own rule.</p>
+                <p class="example-note" data-note="tree">Highlighted: the tab you go to.</p>
+              </figure>
+            </div>
+          </fieldset>
+
+          <fieldset class="setting">
+            <legend>Ask before closing several tabs at once</legend>
+            <p class="help">In the panel: Close tree, Close children, Close group, closing the tabs you selected, and
+              Ctrl+click on a tab's ×, which closes it with the tabs under it. The keyboard shortcut that closes a
+              tree does not ask.</p>
+            <div class="segmented">
+              <label><input type="radio" name="confirmClose" value="2"> From 2 tabs</label>
+              <label><input type="radio" name="confirmClose" value="5"> From 5 tabs</label>
+              <label><input type="radio" name="confirmClose" value="10"> From 10 tabs</label>
+              <label><input type="radio" name="confirmClose" value="never"> Never ask</label>
+            </div>
+          </fieldset>
+
+          <p class="tip">Reopen a tab you closed with <kbd>Ctrl+Shift+T</kbd> or from History, and it goes back under the
+            tab it was under, for half an hour after it closed.</p>
+        </section>
+
+        <!-- ================================ Mouse and dragging ================================ -->
+        <section class="panel" id="panel-mouse" role="tabpanel" aria-labelledby="tab-mouse" tabindex="0" hidden>
+          <h2>Mouse &amp; dragging</h2>
+          <p class="intro">Clicking and dragging in the panel, and moving tabs in the browser's tab strip.</p>
+
+          <fieldset class="setting" data-example="dropInto">
+            <legend>A tab dropped onto the middle of another tab</legend>
+            <p class="help">It goes under that tab, with the tabs under it.</p>
+            <div class="setting-body">
+              <div class="options">
+                <label class="option">
+                  <input type="radio" name="dropInto" value="last">
+                  <span><strong>As its last tab</strong>
+                    <span>After the tabs already under it.</span></span>
+                </label>
+                <label class="option">
+                  <input type="radio" name="dropInto" value="first">
+                  <span><strong>As its first tab</strong>
+                    <span>Before the tabs already under it.</span></span>
+                </label>
+              </div>
+              <figure class="example" aria-hidden="true">
+                <figcaption>Example</figcaption>
+                <div class="example-body"></div>
+                <p class="example-note">Pie is dropped onto the middle of Recipes.</p>
+              </figure>
+            </div>
+          </fieldset>
+
+          <fieldset class="setting">
+            <legend>Collapse or expand a tree with</legend>
+            <div class="options">
+              <label class="option">
+                <input type="radio" name="clickToFold" value="off">
+                <span><strong>Its arrow only</strong>
+                  <span>Click the arrow next to a tab that has tabs under it.</span></span>
+              </label>
+              <label class="option">
+                <input type="radio" name="clickToFold" value="click">
+                <span><strong>A click on the current tab, too</strong>
+                  <span>Clicking the row of the tab you are on collapses or expands the tabs under it.</span></span>
+              </label>
+              <label class="option">
+                <input type="radio" name="clickToFold" value="double">
+                <span><strong>A double-click on a tab, too</strong>
+                  <span>Double-click any row that has tabs under it.</span></span>
+              </label>
+            </div>
+          </fieldset>
+
+          <fieldset class="setting">
+            <legend>A tab you move in the browser's tab strip</legend>
+            <p class="help">Whatever you choose here, a tab you drag out of its tree's tab group leaves the tree (the
+              tabs under it move up), and one you drag into another tree's group joins that tree.</p>
+            <div class="options">
+              <label class="option">
+                <input type="radio" name="stripMoves" value="keep">
+                <span><strong>Keeps its place in the tree</strong>
+                  <span>Anywhere else in the strip, it stays under the same tab.</span></span>
+              </label>
+              <label class="option">
+                <input type="radio" name="stripMoves" value="follow">
+                <span><strong>Joins the tree where you put it</strong>
+                  <span>It takes the place of the tab now after it, at that tab's level. The tabs that were under it
+                    stay where they were.</span></span>
+              </label>
+            </div>
+          </fieldset>
+
+          <p class="tip">Drop on the top quarter of a tab to put the dragged tab before it, on the bottom quarter to put
+            it after it. Hold <kbd>Ctrl</kbd> as you start dragging to move a tab without the tabs under it.</p>
+        </section>
+
+        <!-- ================================ Appearance ================================ -->
+        <section class="panel" id="panel-appearance" role="tabpanel" aria-labelledby="tab-appearance" tabindex="0" hidden>
+          <h2>Appearance</h2>
+          <p class="intro">How the panel looks. To pick its colours yourself, see Colours.</p>
+
+          <div class="look">
+            <div class="look-settings">
+              <fieldset class="setting compact">
+                <legend>Theme</legend>
+                <div class="segmented">
+                  <label><input type="radio" name="theme" value="system"> The browser's</label>
+                  <label><input type="radio" name="theme" value="light"> Light</label>
+                  <label><input type="radio" name="theme" value="dark"> Dark</label>
+                </div>
+              </fieldset>
+              <fieldset class="setting compact">
+                <legend>Row height</legend>
+                <div class="segmented">
+                  <label><input type="radio" name="density" value="compact"> Compact</label>
+                  <label><input type="radio" name="density" value="normal"> Normal</label>
+                  <label><input type="radio" name="density" value="roomy"> Roomy</label>
+                </div>
+              </fieldset>
+              <fieldset class="setting compact">
+                <legend>Text size</legend>
+                <div class="segmented">
+                  <label><input type="radio" name="textSize" value="small"> Small</label>
+                  <label><input type="radio" name="textSize" value="normal"> Normal</label>
+                  <label><input type="radio" name="textSize" value="large"> Large</label>
+                </div>
+              </fieldset>
+              <fieldset class="setting compact">
+                <legend>Indent for each level</legend>
+                <p class="help">It shrinks by itself when a tree gets deep, to leave room for the titles.</p>
+                <div class="segmented">
+                  <label><input type="radio" name="indent" value="narrow"> Narrow</label>
+                  <label><input type="radio" name="indent" value="normal"> Normal</label>
+                  <label><input type="radio" name="indent" value="wide"> Wide</label>
+                </div>
+              </fieldset>
+              <fieldset class="setting compact">
+                <legend>Unread tabs</legend>
+                <p class="help">A tab opened in the background that you haven't looked at yet.</p>
+                <div class="segmented">
+                  <label><input type="radio" name="unread" value="dot"> A dot</label>
+                  <label><input type="radio" name="unread" value="bold"> A bold title</label>
+                  <label><input type="radio" name="unread" value="off"> Nothing</label>
+                </div>
+              </fieldset>
+              <fieldset class="setting compact">
+                <legend>The search box</legend>
+                <div class="segmented">
+                  <label><input type="radio" name="searchBox" value="show"> Always shown</label>
+                  <label><input type="radio" name="searchBox" value="hide"> Hidden until Ctrl+F or /</label>
+                </div>
+              </fieldset>
+            </div>
+            <figure class="example look-preview" id="look-preview" aria-hidden="true">
+              <figcaption>Preview</figcaption>
+              <div class="mock-search">Search tabs</div>
+              <div class="example-body"></div>
+            </figure>
+          </div>
+        </section>
+      </form>
+
+      <!-- ================================ Colours ================================ -->
+      <section class="panel" id="panel-colours" role="tabpanel" aria-labelledby="tab-colours" tabindex="0" hidden>
+        <h2>Colours</h2>
+        <p class="intro">Pick the panel's colours yourself, over the theme's. Save a set to come back to it later.</p>
+
+        <div class="setting">
+          <label class="switch"><input type="checkbox" id="colors-on"> <span>Use my own colours in the panel</span></label>
+          <div class="colours">
+            <div>
+              <div class="color-grid">
+                <label>Background <input type="color" data-key="bg"></label>
+                <label>Text <input type="color" data-key="fg"></label>
+                <label>The current tab <input type="color" data-key="active"></label>
+                <label>Its text <input type="color" data-key="activeFg"></label>
+                <label>Under the pointer <input type="color" data-key="hover"></label>
+                <label>Accent <input type="color" data-key="accent"></label>
+              </div>
+              <label class="check"><input type="checkbox" id="gradient"> The current tab in a gradient, to
+                <input type="color" id="gradient-to" aria-label="The gradient's other colour"></label>
+            </div>
+            <figure class="example">
+              <figcaption>Preview</figcaption>
+              <div id="preview" class="preview" aria-hidden="true">
+                <div class="p-row">A tab</div>
+                <div class="p-row p-active">The current tab</div>
+                <div class="p-row p-hover">A tab under the pointer</div>
+                <div class="p-row"><span class="p-accent"></span> The accent: focus, a drop's place</div>
+              </div>
+            </figure>
+          </div>
+        </div>
+
+        <div class="setting">
+          <h3>Saved colours</h3>
+          <div class="themes">
+            <input id="theme-name" type="text" maxlength="40" placeholder="A name for these colours" aria-label="A name for these colours">
+            <button id="save-theme" type="button" class="primary">Save them</button>
+            <button id="reset-colors" type="button">Back to the theme's colours</button>
+          </div>
+          <ul id="saved-themes" class="list"></ul>
+          <p id="no-themes" class="empty" hidden>None saved yet.</p>
+        </div>
+      </section>
+
+      <!-- ================================ Keyboard ================================ -->
+      <section class="panel" id="panel-keyboard" role="tabpanel" aria-labelledby="tab-keyboard" tabindex="0" hidden>
+        <h2>Keyboard</h2>
+        <p class="intro">Shortcuts that work anywhere in the browser, and the keys of the panel itself.</p>
+
+        <div class="setting">
+          <div class="setting-title">
+            <h3>Shortcuts</h3>
+            <button id="change-keys" type="button" class="primary">Change the keys…</button>
+          </div>
+          <ul id="shortcuts" class="list keys"></ul>
+        </div>
+
+        <div class="setting">
+          <h3>In the panel</h3>
+          <ul class="list keys">
+            <li><span class="name">Move between tabs</span><span><kbd>↑</kbd> <kbd>↓</kbd></span></li>
+            <li><span class="name">The first or last tab</span><span><kbd>Home</kbd> <kbd>End</kbd></span></li>
+            <li><span class="name">Collapse or expand; go to the parent or the first tab under it</span><span><kbd>←</kbd> <kbd>→</kbd></span></li>
+            <li><span class="name">Switch to the tab</span><span><kbd>Enter</kbd> <kbd>Space</kbd></span></li>
+            <li><span class="name">Close the tab</span><span><kbd>Delete</kbd></span></li>
+            <li><span class="name">The tab's menu</span><span><kbd>Menu</kbd></span></li>
+            <li><span class="name">Search</span><span><kbd>Ctrl+F</kbd> <kbd>/</kbd></span></li>
+            <li><span class="name">Select tabs</span><span><kbd>Ctrl+click</kbd> <kbd>Shift+click</kbd></span></li>
+            <li><span class="name">End a selection</span><span><kbd>Esc</kbd></span></li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- ================================ Closed windows ================================ -->
+      <section class="panel" id="panel-closed-windows" role="tabpanel" aria-labelledby="tab-closed-windows" tabindex="0" hidden>
+        <h2>Closed windows</h2>
+        <p class="intro">The trees of up to ten windows you closed while the browser was running. A window that opens
+          with their pages again gets its tree back. Open one again from here, or forget it.</p>
+        <div class="setting">
+          <ul id="closed-list" class="list"></ul>
+          <p id="no-closed" class="empty" hidden>None kept now.</p>
+        </div>
+      </section>
+
+      <!-- ================================ About ================================ -->
+      <section class="panel" id="panel-about" role="tabpanel" aria-labelledby="tab-about" tabindex="0" hidden>
+        <h2>About</h2>
+        <div class="setting">
+          <h3>Vertical Tree Tabs <span id="version" class="version"></span></h3>
+          <p>Tabs in the side panel, nested as a tree under the tab each one was opened from, and mirrored in the tab
+            strip as tab groups.</p>
+          <p><a href="https://github.com/oshri-almog/VerticalTreeTabs#readme" target="_blank" rel="noopener">How to use
+            it</a> · <a href="https://github.com/oshri-almog/VerticalTreeTabs" target="_blank" rel="noopener">Source
+            code</a></p>
+        </div>
+        <div class="setting">
+          <h3>Privacy</h3>
+          <p>The tree, with your tabs' addresses and titles, stays in this browser, and the extension sends nothing
+            anywhere (it shows each tab's site icon from the address the page gives for it).</p>
+          <p><a href="https://github.com/oshri-almog/VerticalTreeTabs/blob/main/PRIVACY.md" target="_blank" rel="noopener">Privacy policy</a></p>
+        </div>
+      </section>
+    </main>
+  </div>
 </body>
 </html>

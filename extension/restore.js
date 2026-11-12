@@ -12,10 +12,12 @@
 // back by URL (see matchClosedWindow).
 
 import { colorOf, removeNode } from './tree.js';
+import { isNewTabPage } from './folders.js';
 
 /** The fields of a node for its tab group (see groups.js) that a snapshot keeps, where they are set. */
 export const GROUP_FIELDS = [
   'groupName', 'groupColor', 'lastGroupColor', 'noGroup', 'hadGroup', 'groupAdopted', 'firstLink', 'alsoLinks',
+  'unread', // not a group's: a tab opened in the background, not looked at yet (see the setting unread)
 ];
 
 /** The most windows whose trees are kept once they closed (see goneWindows). */
@@ -23,14 +25,24 @@ export const MAX_CLOSED_WINDOWS = 10;
 
 /**
  * The saved windows (`saved`, as in a snapshot) that are gone from the open ones (`open`: [{ tabs: [{ id, url }] }]):
- * none of their tabs is open, and no open window holds most of their URLs (after a restart that numbered the tabs anew,
- * the same windows are back under new ids). Only those with a tree: the others have nothing to give back.
+ * none of their tabs is open, and no open window is the same window by URL (after a restart that numbered the tabs
+ * anew, the same windows are back under new ids; see sameByUrl). Only those with a tree: the others have nothing to give
+ * back.
  */
-export function goneWindows(saved, open) {
+export function goneWindows(saved, open, same = sameByUrl) {
   const ids = new Set(open.flatMap((win) => win.tabs.map((tab) => tab.id)));
   return (saved ?? []).filter((win) => win.tabs.some((tab) => tab.parent != null)
     && !win.tabs.some((tab) => ids.has(tab.id))
-    && !open.some((other) => 2 * sharedUrlCount(win.tabs, other.tabs) >= win.tabs.length));
+    && !open.some((other) => same(win.tabs, other.tabs)));
+}
+
+/**
+ * Whether two windows' tabs (`a`, `b`) are the same window by URL: they share two pages at least, and half of either
+ * one's. (A small window whose top page is open in a bigger one too is not that window, nor is a window that opened two
+ * of a closed window's pages again.) `shared`: their shared URL count, if counted already.
+ */
+function sameByUrl(a, b, shared = sharedUrlCount(a, b)) {
+  return shared >= 2 && 2 * shared >= a.length && 2 * shared >= b.length;
 }
 
 /** The closed windows kept (`closed`), with the windows `gone` at `at` in front: the newest first, MAX_CLOSED_WINDOWS. */
@@ -42,26 +54,83 @@ export const addClosedWindows = (closed, gone, at) =>
  * [{ id, url }] in strip order): the one that shares the most URLs with them, at least two, and half of the tabs on either
  * side. Returns { index, mapping } (its saved ids -> those tabs, see matchByUrl), or null.
  */
-export function matchClosedWindow(closed, tabs) {
+/**
+ * Whether the tabs `b` are the closed window `a` back, by URL: the same window (see sameByUrl), and of a small one (4
+ * tabs or fewer, where two pages are half of it) 3 pages at least, all of a 2 or 3-tab one: a window that opened two of
+ * its pages again is not it. A New Tab page counts for one of its folders (the browser may show one in a folder's
+ * place, see folderPlaceholders).
+ */
+export function backByUrl(a, b, shared = sharedUrlCount(a, b)) {
+  if (!sameByUrl(a, b, shared)) return false;
+  if (a.length > 4) return true;
+  const folders = a.filter((tab) => OWN_FOLDER_URL.test(tab.url ?? '')).length;
+  const stands = Math.min(folders, b.filter((tab) => isNewTabPage(tab.url)).length);
+  return shared + stands >= Math.min(a.length, 3);
+}
+const OWN_FOLDER_URL = /^chrome-extension:\/\/[a-p]{32}\/folder\.html(?=[?#]|$)/;
+
+export function matchClosedWindow(closed, tabs, standsIn = null) {
   let best = null;
   closed.forEach((win, index) => {
     const score = sharedUrlCount(win.tabs, tabs);
-    if (score < 2 || 2 * score < tabs.length || 2 * score < win.tabs.length) return;
+    if (!backByUrl(win.tabs, tabs, score)) return;
     if (!best || score > best.score) best = { index, score };
   });
-  return best && { index: best.index, mapping: matchByUrl({ windows: [closed[best.index]] }, [{ tabs }]) };
+  return best && { index: best.index, mapping: matchByUrl({ windows: [closed[best.index]] }, [{ tabs }], standsIn) };
+}
+
+/**
+ * The saved folder tabs (`isFolder(url)`, see folders.js) that `mapping` (saved id -> tab id) left out, which the
+ * browser brought back as New Tab pages (`isPlaceholder(url)`), as Chrome may do with an extension's pages in the tab
+ * groups it restores. Each takes one such tab that no saved tab has, in the window that holds most of its own window's
+ * tabs now, between the tabs that the saved ones on either side of it are now. `windows`: [{ tabs: [{ id, url }] }],
+ * each in strip order. Returns [saved id, tab id, saved url] for each, for the caller to map and send back to its page.
+ */
+export function folderPlaceholders(snapshot, windows, mapping, isFolder, isPlaceholder) {
+  const where = new Map(); // tab id -> [window, position]
+  windows.forEach((win, w) => win.tabs.forEach((tab, i) => where.set(tab.id, [w, i])));
+  const map = new Map(mapping);
+  const taken = new Set(map.values());
+  const found = [];
+  for (const saved of snapshot?.windows ?? []) {
+    const counts = new Map();
+    for (const tab of saved.tabs) {
+      const at = where.get(map.get(tab.id));
+      if (at) counts.set(at[0], (counts.get(at[0]) ?? 0) + 1);
+    }
+    if (!counts.size) continue;
+    const [[w]] = [...counts].sort((a, b) => b[1] - a[1]);
+    const { tabs } = windows[w];
+    const positionOf = (list) => list.map((tab) => where.get(map.get(tab.id))).find((at) => at?.[0] === w)?.[1];
+    saved.tabs.forEach((entry, i) => {
+      if (map.has(entry.id) || !isFolder(entry.url)) return;
+      const from = positionOf(saved.tabs.slice(0, i).reverse()) ?? -1;
+      const to = positionOf(saved.tabs.slice(i + 1)) ?? tabs.length;
+      for (let p = from + 1; p < to; p++) {
+        const tab = tabs[p];
+        if (taken.has(tab.id) || !isPlaceholder(tab.url)) continue;
+        taken.add(tab.id);
+        map.set(entry.id, tab.id);
+        found.push([entry.id, tab.id, entry.url]);
+        return;
+      }
+    });
+  }
+  return found;
 }
 
 /**
  * Map saved ids to current tabs when the ids survived (extension reload / update).
  * Returns null when they did not line up, as after a browser restart.
  */
-export function matchById(snapshot, tabs) {
+export function matchById(snapshot, tabs, closedOnReload = () => false) {
   const current = new Map(tabs.map((tab) => [tab.id, tab]));
   const saved = snapshot.windows.flatMap((w) => w.tabs);
   if (!saved.length) return null;
-  const confirmed = saved.filter((s) => s.url && urlOf(current.get(s.id)) === s.url).length;
-  if (confirmed * 2 < saved.length) return null;
+  // The extension's own pages (folders) are closed, or show another page, after a reload: they tell nothing.
+  const telling = saved.filter((s) => !closedOnReload(s.url));
+  const confirmed = telling.filter((s) => s.url && urlOf(current.get(s.id)) === s.url).length;
+  if (!telling.length || confirmed * 2 < telling.length) return null;
   return new Map(saved.filter((s) => current.has(s.id)).map((s) => [s.id, s.id]));
 }
 
@@ -72,7 +141,7 @@ export function matchById(snapshot, tabs) {
  *
  * `windows` is [{ tabs: [{ id, url }] }] with each window's tabs in strip order.
  */
-export function matchByUrl(snapshot, windows) {
+export function matchByUrl(snapshot, windows, standsIn = null) {
   const candidates = [];
   snapshot.windows.forEach((saved, i) => {
     windows.forEach((current, j) => {
@@ -91,7 +160,7 @@ export function matchByUrl(snapshot, windows) {
     usedCurrent.add(j);
     const savedTabs = snapshot.windows[i].tabs;
     const currentTabs = windows[j].tabs;
-    for (const [a, b] of alignByUrl(savedTabs, currentTabs)) {
+    for (const [a, b] of alignByUrl(savedTabs, currentTabs, standsIn)) {
       mapping.set(savedTabs[a].id, currentTabs[b].id);
     }
   }
@@ -178,7 +247,7 @@ function sharedUrlCount(a, b) {
 // fall back to pairing equal URLs first come, first served.
 const MAX_TABLE = 4_000_000;
 
-function alignByUrl(a, b) {
+function alignByUrl(a, b, standsIn = null) {
   const n = a.length;
   const m = b.length;
   if (n * m > MAX_TABLE) return alignGreedy(a, b);
@@ -199,6 +268,11 @@ function alignByUrl(a, b) {
   while (i < n && j < m) {
     if (a[i].url && a[i].url === b[j].url) {
       pairs.push([i, j]);
+      i++;
+      j++;
+    } else if (standsIn?.(a[i].url, b[j].url) && table[(i + 1) * width + j + 1] === table[i * width + j]) {
+      // b[j] may be a[i] itself, shown as another page (a folder as a New Tab page): neither is paired with another tab
+      // here, and folderPlaceholders gives b[j] to a[i].
       i++;
       j++;
     } else if (table[(i + 1) * width + j] >= table[i * width + j + 1]) {
